@@ -1,4 +1,5 @@
 import database.DBConnection;
+import menu.RegistrationMenu;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -47,6 +48,7 @@ public class Main {
         // Step 2: Show the main menu in a loop
         // --------------------------------------------------
         Scanner scanner = new Scanner(System.in);
+        RegistrationMenu registrationMenu = new RegistrationMenu();  // Stage 2: Registration menu
         boolean running = true;
 
         while (running) {
@@ -56,7 +58,7 @@ public class Main {
 
             switch (choice) {
                 case "1":
-                    System.out.println("\n>> Registration will be implemented in Stage 3.\n");
+                    registrationMenu.showRegistrationForm(scanner);  // Stage 2: Customer Registration
                     break;
                 case "2":
                     System.out.println("\n>> Customer Login will be implemented in Stage 4.\n");
