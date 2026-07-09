@@ -1,63 +1,71 @@
-# 📌 NEXT TASK — Stage 3: Customer Login & Authentication
+# 📌 NEXT TASK — Stage 5: Deposit Functionality
 
-**Planned Date:** July 3, 2026 (Friday)  
-**Prerequisite:** Stage 2 must be tested and working (Customer Registration)
+**Planned Date:** July 11, 2026 (Friday)  
+**Prerequisite:** Stage 4 must be tested and working (Account Creation & Balance Checking)
 
 ---
 
 ## 🎯 Goal
 
-Implement Customer Login so that registered customers can authenticate using their **email** and **password**. After successful login, display a **Customer Dashboard** menu with placeholder options for future features.
+Implement deposit functionality for logged-in customers. When a customer selects "2. Deposit" from the Customer Dashboard, the system should:
+1. Fetch the customer's accounts and display them.
+2. Prompt the customer to select which account to deposit into.
+3. Prompt for a deposit amount (minimum Rs. 500).
+4. Update the account balance in the database.
+5. Log the transaction to the `transactions` table.
+6. Display a success confirmation with the updated balance.
 
 ---
 
 ## 📝 Tasks
 
-### Task 1 — Add `loginCustomer()` method to `CustomerDAO.java`
+### Task 1 — Create `Transaction.java` in `src/model/`
 
-- Add a new method: `loginCustomer(String email, String password)`
-- Use a `SELECT` query with `PreparedStatement` to find a customer matching both email and password
-- Return a `Customer` object if credentials match, or `null` if they don't
-- Handle `SQLException` gracefully — don't crash the app
-
-**Expected SQL:**
-```sql
-SELECT * FROM customers WHERE email = ? AND password = ?
-```
-
----
-
-### Task 2 — Create `CustomerMenu.java` in `src/menu/`
-
-- This is the **Customer Dashboard** — shown only after successful login
-- Display a menu with these options (most will be stubs for now):
-  1. View Account Details *(stub — Stage 4)*
-  2. Deposit *(stub — Stage 5)*
-  3. Withdraw *(stub — Stage 6)*
-  4. Fund Transfer *(stub — Stage 7)*
-  5. Mini Statement *(stub — Stage 8)*
-  6. Logout *(functional — returns to main menu)*
-- Accept the logged-in `Customer` object and `Scanner` as parameters
-- Show a welcome message: `"Welcome, [customer name]!"`
+- Create a POJO class representing a transaction matching the `transactions` database table.
+- Fields:
+  - `private int transactionId`
+  - `private long fromAccount`
+  - `private long toAccount`
+  - `private String transactionType`
+  - `private double amount`
+  - `private String transactionTime`
+  - `private String remarks`
+- Implement default constructor, constructor for deposit (no `transactionId`, no `fromAccount`), and full constructor (for DB loading).
+- Implement getters, setters, and `toString()`.
 
 ---
 
-### Task 3 — Create `LoginMenu.java` in `src/menu/`
+### Task 2 — Create `TransactionDAO.java` in `src/dao/`
 
-- Handle the login user interface
-- Prompt the user for email and password
-- Call `customerDAO.loginCustomer(email, password)`
-- If login succeeds → call `CustomerMenu` to show the dashboard
-- If login fails → show error message: `"Invalid email or password"`
-- Return to main menu after logout or failed login
+- Implement data access logic for transactions:
+  - `depositAmount(long accountNo, double amount)`: Updates the account balance using:
+    - `UPDATE accounts SET balance = balance + ? WHERE account_no = ?`
+    - After successful update, insert a row into `transactions`:
+      - `INSERT INTO transactions (to_account, transaction_type, amount, remarks) VALUES (?, 'DEPOSIT', ?, ?)`
+    - Both SQL operations must be wrapped in a **single database transaction** (use `conn.setAutoCommit(false)` + `conn.commit()` / `conn.rollback()`).
+    - Handle `SQLException` gracefully.
+  - `getUpdatedBalance(long accountNo)`: Fetches and returns the latest balance for a given account:
+    - `SELECT balance FROM accounts WHERE account_no = ?`
 
 ---
 
-### Task 4 — Wire Login to `Main.java`
+### Task 3 — Update `CustomerMenu.java` in `src/menu/`
 
-- Connect main menu option `2` ("Customer Login") to `LoginMenu`
-- Replace the current stub message with actual login flow
-- Minimal changes to Main.java (same approach as Stage 2)
+- Instantiate `TransactionDAO` in `CustomerMenu`.
+- Modify option `2` ("Deposit") to:
+  - Fetch accounts for the logged-in customer using `accountDAO.getAccountsByCustomerId()`.
+  - If no accounts exist:
+    - Display: `"You do not have any accounts to deposit into. Please open an account first."`
+    - Return to dashboard.
+  - If accounts exist:
+    - Display numbered list of accounts (Account No + Type).
+    - Prompt the customer to select which account to deposit into.
+    - Validate selection (must be a valid number in range).
+    - Prompt for deposit amount: `"Enter amount to deposit (Min Rs. 500): "`
+    - Validate: amount must be a valid number and `>= 500`.
+    - Call `transactionDAO.depositAmount(accountNo, amount)`.
+    - Fetch updated balance using `transactionDAO.getUpdatedBalance(accountNo)`.
+    - Display success confirmation with new balance.
 
 ---
 
@@ -65,57 +73,69 @@ SELECT * FROM customers WHERE email = ? AND password = ?
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/dao/CustomerDAO.java` | MODIFY | Add `loginCustomer(String email, String password)` method |
-| `src/menu/LoginMenu.java` | NEW | Console UI for login — collects email & password |
-| `src/menu/CustomerMenu.java` | NEW | Customer Dashboard — post-login menu with stub options |
-| `src/Main.java` | MODIFY | Wire option 2 to `LoginMenu` |
+| `src/model/Transaction.java` | NEW | Model representing the transactions table |
+| `src/dao/TransactionDAO.java` | NEW | DB logic for deposit update and transaction log insert |
+| `src/menu/CustomerMenu.java` | MODIFY | Implement Deposit flow for option 2 |
 
 ---
 
 ## 🏗️ Expected Flow
 
 ```
-Main Menu → User selects "2. Customer Login"
+Customer Dashboard → User selects "2. Deposit"
     │
     ▼
-LoginMenu → Prompts for email and password
+accountDAO.getAccountsByCustomerId(customerId)
     │
-    ▼
-CustomerDAO.loginCustomer(email, password)
+    ├── No accounts ──► "No accounts found. Open an account first."
+    │                   ──► Return to Dashboard
     │
-    ├── Match found → Returns Customer object
-    │       │
-    │       ▼
-    │   CustomerMenu → Shows dashboard with options
-    │       │
-    │       └── User selects "6. Logout" → Back to Main Menu
-    │
-    └── No match → Prints "[ERROR] Invalid email or password"
-                → Back to Main Menu
+    └── Accounts found ──► Display numbered list of accounts
+                           ──► Prompt: "Select account number (1/2/...): "
+                           [Validate selection]
+                               │
+                               ▼
+                           Prompt: "Enter amount to deposit (Min Rs. 500): "
+                           [Validate: numeric, >= 500]
+                               │
+                               ▼
+                           transactionDAO.depositAmount(accountNo, amount)
+                               │
+                               ├── UPDATE accounts SET balance = balance + ? WHERE account_no = ?
+                               └── INSERT INTO transactions (to_account, type, amount, remarks)
+                               [Both inside a single DB transaction with commit/rollback]
+                               │
+                               ▼
+                           transactionDAO.getUpdatedBalance(accountNo)
+                               │
+                               ▼
+                           "✓ Deposit Successful! New Balance: Rs. X,XXX.XX"
+                               │
+                               ▼
+                           Return to Dashboard
 ```
 
 ---
 
 ## ✅ Definition of Done
 
-- [ ] `loginCustomer()` correctly validates credentials against the database
-- [ ] Invalid login shows a clear error message (no crash)
-- [ ] Successful login shows the Customer Dashboard with the customer's name
-- [ ] Logout returns to the main menu cleanly
-- [ ] All existing code (Stage 1 & 2) remains untouched and functional
-- [ ] Code is well-commented and beginner-friendly
+- [ ] `Transaction` model and `TransactionDAO` classes are successfully created and structured.
+- [ ] Deposit updates the `accounts.balance` column correctly in the database.
+- [ ] Each deposit is recorded as a row in the `transactions` table with `transaction_type = 'DEPOSIT'`.
+- [ ] Both the balance update and the transaction insert succeed atomically — if one fails, the other is rolled back.
+- [ ] Minimum deposit amount of Rs. 500 is enforced with looped validation.
+- [ ] Updated balance is fetched from the database and shown to the customer after deposit.
+- [ ] All database resources (Connections, Statements, ResultSets) are safely released using `try-with-resources`.
 
 ---
 
-## 🚫 What NOT to Implement in Stage 3
+## 🚫 What NOT to Implement in Stage 5
 
-- ❌ Account creation
-- ❌ Deposit / Withdrawal / Transfer logic
-- ❌ Transaction history
-- ❌ Admin login
-
-Only implement **Customer Login**, the **Customer Dashboard** (with stubs), and wire it to the main menu.
+- ❌ Withdrawal functionality (Stage 6)
+- ❌ Fund Transfer (Stage 7)
+- ❌ Transaction History display (Stage 8)
+- ❌ Admin operations (Stage 9)
 
 ---
 
-> ⚠️ **Do NOT start Stage 3 until Stage 2 is fully tested and confirmed working.**
+> ⚠️ **Do NOT start Stage 5 until Stage 4 is fully tested and confirmed working.**

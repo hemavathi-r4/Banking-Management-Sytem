@@ -47,22 +47,44 @@ Stage 3 focused on implementing the customer authentication system. This allows 
 
 ---
 
+### 📅 Stage 4 — Account Creation & Balance Checking (July 10, 2026)
+Stage 4 implemented the core banking feature: allowing logged-in customers to open a bank account (SAVINGS or CURRENT) and view their account details. This stage introduced a new model class, a new DAO class, and a fully functional View Account Details flow inside the Customer Dashboard.
+
+**Key Achievements:**
+- Created `Account.java` — a POJO model mirroring the `accounts` table with three constructors (default, creation without `account_no`, and full DB-load constructor).
+- Created `AccountDAO.java` — data access layer for the `accounts` table with:
+  - `createAccount(Account account)`: INSERTs a new account row with `customer_id`, `account_type`, `balance`, and `status = 'ACTIVE'`.
+  - `getAccountsByCustomerId(int customerId)`: SELECTs all accounts for the given customer and returns them as a `List<Account>`.
+- Updated `CustomerMenu.java` — replaced the Stage 4 stub for option `1` with a full `viewAccountDetails()` method:
+  - Fetches accounts; if found, displays Account No, Account Type, Balance (formatted as `Rs. X,XXX.XX`), and Status for each.
+  - If no accounts exist, prompts to open one: validates account type (must be `SAVINGS` or `CURRENT`) and initial deposit (minimum Rs. 1000) using looped input validation.
+  - On valid input, builds an `Account` object and calls `accountDAO.createAccount()` to persist it.
+
+**Files Created/Modified in Stage 4:**
+- `src/model/Account.java` — NEW: POJO class for account data.
+- `src/dao/AccountDAO.java` — NEW: DAO with `createAccount()` and `getAccountsByCustomerId()`.
+- `src/menu/CustomerMenu.java` — MODIFIED: Option 1 now fully implemented.
+
+---
+
 ## 📂 Current Folder Structure
 ```
 BMS/
 ├── src/
 │   ├── model/
-│   │   └── Customer.java          ← Stage 2 Model (POJO)
+│   │   ├── Customer.java          ← Stage 2 Model (POJO)
+│   │   └── Account.java           ← Stage 4 Model (POJO)
 │   ├── dao/
-│   │   └── CustomerDAO.java       ← Stage 2 & 3 Data Access Object (Database Logic)
+│   │   ├── CustomerDAO.java       ← Stage 2 & 3 Data Access Object
+│   │   └── AccountDAO.java        ← Stage 4 Data Access Object
 │   ├── database/
 │   │   └── DBConnection.java      ← Stage 1 JDBC Connection Utility
 │   ├── exception/                 ← Empty (reserved for custom exceptions in future stages)
 │   ├── menu/
 │   │   ├── RegistrationMenu.java  ← Stage 2 Registration Console UI
 │   │   ├── LoginMenu.java         ← Stage 3 Login Console UI
-│   │   └── CustomerMenu.java      ← Stage 3 Customer Dashboard Console UI
-│   └── Main.java                  ← Modified Entry Point (Wired to Registration & Login)
+│   │   └── CustomerMenu.java      ← Stage 3 (base) + Stage 4 (View Account Details)
+│   └── Main.java                  ← Entry Point (Wired to Registration & Login)
 ├── sql/
 │   └── bank_management.sql        ← Stage 1 DB schema SQL script
 ├── lib/                           ← External JAR libraries (contains mysql-connector-j-8.0.33.jar)
@@ -107,9 +129,13 @@ The database named `bank_management` contains four major tables: `customers`, `a
 
 ---
 
-## 🔍 Detailed Component Implementations (Stage 3 Focus)
+## 🔍 Detailed Component Implementations
 
-### 1. DAO Extension: `src/dao/CustomerDAO.java`
+---
+
+### Stage 3 Components
+
+#### 1. DAO Extension: `src/dao/CustomerDAO.java`
 We extended the data access object class to handle verification of user credentials.
 - **Added Method:** `public Customer loginCustomer(String email, String password)`
 - **Logic:**
@@ -121,7 +147,7 @@ We extended the data access object class to handle verification of user credenti
   6. If no matches are found, returns `null`.
   7. Catches `SQLException` gracefully, outputting a descriptive error message to the console instead of crashing the system.
 
-### 2. Login UI: `src/menu/LoginMenu.java`
+#### 2. Login UI: `src/menu/LoginMenu.java`
 Handles the credential gathering interface.
 - **Dependencies:** Instantiates `CustomerDAO` (to verify credentials) and `CustomerMenu` (to display the dashboard on success).
 - **Core Method:** `public void showLoginForm(Scanner scanner)`
@@ -131,19 +157,19 @@ Handles the credential gathering interface.
   - On success: delegates to `CustomerMenu.showDashboard(customer, scanner)`.
   - On failure: displays `[ERROR] Invalid email or password` and returns execution control back to the Main Menu.
 
-### 3. Customer Dashboard UI: `src/menu/CustomerMenu.java`
+#### 3. Customer Dashboard UI: `src/menu/CustomerMenu.java` (Stage 3 Base)
 Handles the post-authentication environment for logged-in users.
 - **Core Method:** `public void showDashboard(Customer customer, Scanner scanner)`
   - Displays a dashboard console menu greeting the customer by name: `Welcome, [customer name]!`.
   - Prompts choice in a loop for six options:
-    1. View Account Details *(Stub for Stage 4)*
+    1. View Account Details *(Stub — implemented in Stage 4)*
     2. Deposit *(Stub for Stage 5)*
     3. Withdraw *(Stub for Stage 6)*
     4. Fund Transfer *(Stub for Stage 7)*
     5. Mini Statement *(Stub for Stage 8)*
     6. Logout *(Exits loop, returns to LoginMenu, which returns to Main Menu)*
 
-### 4. Entry Point: `src/Main.java` (Updated in Stage 3)
+#### 4. Entry Point: `src/Main.java` (Updated in Stage 3)
 - **Modifications Made:**
   - Imported `menu.LoginMenu`.
   - Instantiated `LoginMenu loginMenu = new LoginMenu();` before entering the main loop.
@@ -151,8 +177,82 @@ Handles the post-authentication environment for logged-in users.
 
 ---
 
-## 🏗️ Architecture Flow: Customer Login Process
-Below is the sequential end-to-end execution flow during customer login:
+### Stage 4 Components
+
+#### 1. Account Model: `src/model/Account.java` — NEW
+A POJO (Plain Old Java Object) class that mirrors the `accounts` table in MySQL.
+
+- **Fields:**
+  - `private long accountNo` — Primary key, auto-generated by MySQL starting at 1001. Uses `long` because `BIGINT` in MySQL maps to Java's `long`.
+  - `private int customerId` — Foreign key linking the account to a customer.
+  - `private String accountType` — Either `"SAVINGS"` or `"CURRENT"`.
+  - `private double balance` — The current balance in the account.
+  - `private String status` — Account state: `"ACTIVE"`, `"FROZEN"`, or `"CLOSED"`.
+
+- **Constructors:**
+  1. **No-arg constructor** — Creates an empty `Account` object (useful for setter-based population).
+  2. **Creation constructor** `(int customerId, String accountType, double balance, String status)` — Used when opening a new account. `accountNo` is omitted because MySQL assigns it automatically.
+  3. **Full constructor** `(long accountNo, int customerId, String accountType, double balance, String status)` — Used when loading an existing account from the database where all columns are already known.
+
+- **Design Note:** `toString()` includes all fields (unlike `Customer.java` which hides the password), since account data has no sensitive equivalent to exclude.
+
+---
+
+#### 2. Account Data Access: `src/dao/AccountDAO.java` — NEW
+Data Access Object that handles all SQL operations for the `accounts` table.
+
+**Method 1: `public boolean createAccount(Account account)`**
+- **Purpose:** Inserts a new row into the `accounts` table.
+- **SQL:** `INSERT INTO accounts (customer_id, account_type, balance, status) VALUES (?, ?, ?, ?)`
+- **Why no `account_no`?** MySQL auto-generates it (starting at 1001 via `ALTER TABLE accounts AUTO_INCREMENT = 1001`).
+- **Why no user-inputted `status`?** All newly opened accounts are always `'ACTIVE'`. The status is set in `CustomerMenu` before calling this method, preventing user tampering.
+- **Resource Management:** Uses `try-with-resources` — `Connection` and `PreparedStatement` are automatically closed when the block exits, even if an exception is thrown.
+- **Return value:** Returns `true` if `rowsInserted > 0`, otherwise returns `false`. Displays a success banner on success.
+
+**Method 2: `public List<Account> getAccountsByCustomerId(int customerId)`**
+- **Purpose:** Fetches all accounts belonging to the specified customer.
+- **SQL:** `SELECT * FROM accounts WHERE customer_id = ?`
+- **Return type:** `List<Account>` — because a customer may hold multiple accounts (e.g., both SAVINGS and CURRENT).
+- **Design:** Returns an **empty list** (never `null`) when the customer has no accounts. This is a Java best practice — callers use `.isEmpty()` instead of a null check, preventing `NullPointerException`.
+- **ResultSet Mapping:** Each row is mapped to an `Account` object using the full constructor: `new Account(rs.getLong("account_no"), rs.getInt("customer_id"), ...)`.
+- **Resource Management:** Nested `try-with-resources` — the `ResultSet` is closed in its own inner block after mapping is complete.
+
+---
+
+#### 3. Customer Dashboard Update: `src/menu/CustomerMenu.java` — MODIFIED
+The `showDashboard()` method's `case "1"` stub was replaced with a call to the new `viewAccountDetails()` private method.
+
+**New field added:**
+```java
+private final AccountDAO accountDAO = new AccountDAO();
+```
+Instantiated once as a class-level field so it is reused across all dashboard sessions, rather than creating a new instance on each menu selection.
+
+**New private method: `viewAccountDetails(Customer customer, Scanner scanner)`**
+
+Step-by-step logic:
+1. **Fetch accounts** — calls `accountDAO.getAccountsByCustomerId(customer.getCustomerId())`.
+2. **If accounts exist** — iterates the list and prints for each account:
+   - `Account Number` (the auto-generated BIGINT)
+   - `Account Type` (SAVINGS or CURRENT)
+   - `Balance` formatted as `Rs. X,XXX.XX` using `System.out.printf("Rs. %,.2f", ...)`
+   - `Status` (ACTIVE / FROZEN / CLOSED)
+   - Returns immediately after display.
+3. **If no accounts** — prints `"You do not have a bank account registered."`
+4. **Open account prompt** — asks `"Would you like to open a new account? (yes/no): "`.
+   - If `no` → prints `"Returning to dashboard..."` and returns.
+   - If `yes` → continues to account type selection.
+5. **Account type loop** — repeatedly prompts until user enters `SAVINGS` or `CURRENT` (case-insensitive, uppercased via `.toUpperCase()`).
+6. **Deposit amount loop** — repeatedly prompts until:
+   - Input is a valid number (`Double.parseDouble()` — catches `NumberFormatException` for non-numeric input).
+   - Amount is `>= 1000` (minimum deposit rule).
+7. **Create and persist** — builds `new Account(customerId, accountType, initialDeposit, "ACTIVE")` and calls `accountDAO.createAccount(newAccount)`.
+
+---
+
+## 🏗️ Architecture Flows
+
+### Stage 3: Customer Login Process
 
 ```
 [User runs the application]
@@ -187,8 +287,67 @@ Below is the sequential end-to-end execution flow during customer login:
                         │                                         │
                         ▼                                         ▼
            [Customer Dashboard Loop]                      [Return to Main Menu]
-             1-5: Print Stub Msg
+             1: viewAccountDetails() (Stage 4)
+             2-5: Print Stub Msg
              6: Logout ──► Back to Main Menu
+```
+
+---
+
+### Stage 4: View Account Details & Account Creation Flow
+
+```
+Customer Dashboard → User selects "1. View Account Details"
+        │
+        ▼
+CustomerMenu.viewAccountDetails(customer, scanner)
+        │
+        ▼
+accountDAO.getAccountsByCustomerId(customer.getCustomerId())
+        │
+        ├──► Accounts found
+        │         │
+        │         ▼
+        │    Loop over each Account:
+        │      Print: Account Number
+        │      Print: Account Type
+        │      Print: Balance (Rs. X,XXX.XX)
+        │      Print: Status
+        │         │
+        │         ▼
+        │    Return to Dashboard Menu
+        │
+        └──► No accounts found
+                  │
+                  ▼
+         "You do not have a bank account registered."
+         "Would you like to open a new account? (yes/no)"
+                  │
+          ┌───────┴───────┐
+          ▼               ▼
+        "no"            "yes"
+          │               │
+          ▼               ▼
+     Return to       Prompt: Enter account type (SAVINGS/CURRENT)
+     Dashboard         [Loop until valid type entered]
+                        │
+                        ▼
+                   Prompt: Enter initial deposit (Min Rs. 1000)
+                     [Loop until valid number >= 1000 entered]
+                        │
+                        ▼
+                   Build Account object (customerId, type, deposit, "ACTIVE")
+                        │
+                        ▼
+                   accountDAO.createAccount(account)
+                     → SQL: INSERT INTO accounts (customer_id, account_type, balance, status)
+                            VALUES (?, ?, ?, ?)
+                        │
+                        ▼
+                   "✓ Account Opened Successfully!" displayed
+                        │
+                        ▼
+                   Return to Dashboard Menu
 ```
 
 ---
@@ -196,33 +355,37 @@ Below is the sequential end-to-end execution flow during customer login:
 ## 🧠 OOP & Software Design Patterns Applied
 The project enforces structured, enterprise-ready software patterns:
 
-1. **Encapsulation:** Data variables in `Customer.java` are private and accessed via getters/setters. Sensitive info (password) is omitted from `toString()`.
-2. **Data Access Object (DAO) Pattern:** SQL queries and DB logic live strictly inside `CustomerDAO.java`. The presentation classes (`LoginMenu`, `CustomerMenu`) know nothing about MySQL drivers, connections, or SQL statement semantics; they handle Java objects and parameters.
+1. **Encapsulation:** Data variables in `Customer.java` and `Account.java` are private and accessed via getters/setters. Sensitive info (password) is omitted from `Customer.toString()`.
+2. **Data Access Object (DAO) Pattern:** SQL queries and DB logic live strictly inside `CustomerDAO.java` and `AccountDAO.java`. Presentation classes (`LoginMenu`, `CustomerMenu`) know nothing about MySQL drivers, connections, or SQL semantics — they only receive Java objects.
 3. **Separation of Concerns (SoC):** Distinct classes represent separate application layers:
    - `Main.java`: Router and lifecycle coordinator.
-   - `Customer.java`: Model data class (POJO).
-   - `CustomerDAO.java`: DB persistence layer.
-   - `LoginMenu.java` & `CustomerMenu.java`: Presentation and interactive input layer.
+   - `Customer.java` / `Account.java`: Model data classes (POJOs).
+   - `CustomerDAO.java` / `AccountDAO.java`: DB persistence layer.
+   - `LoginMenu.java` / `CustomerMenu.java`: Presentation and interactive input layer.
 4. **Single Responsibility Principle (SRP):** Each class has exactly one responsibility.
 5. **Defensive Programming:**
    - Pre-validation of input strings to avoid unnecessary SQL network queries.
    - Parametrized SQL statement usage (`PreparedStatement`) to prevent SQL Injection vulnerability.
+   - Looped input validation in `CustomerMenu` for account type and deposit amount — invalid input re-prompts instead of crashing.
+   - `NumberFormatException` caught locally for non-numeric deposit input.
+   - `getAccountsByCustomerId()` returns an empty `List` (never `null`) to avoid `NullPointerException` in callers.
    - Catching `SQLException` locally inside helper connection blocks to prevent application termination on database communication failures.
-   - Centralized database resource cleanups with `try-with-resources`.
+   - Centralized database resource cleanups with `try-with-resources` (including nested `ResultSet` closure).
 
 ---
 
 ## ⚙️ Setup & Verification Steps
 
-To run and verify the system up to Stage 3:
+To run and verify the system up to Stage 4:
 1. **Initialize Database:** Ensure `sql/bank_management.sql` has been executed in your MySQL database instance.
 2. **Update Connection Parameters:** Open `src/database/DBConnection.java` and replace values with your database credentials.
-3. **Add Driver Library:** Download the MySQL Connector/J driver (`mysql-connector-j-8.0.33.jar`), place it inside the `lib/` directory, and add it to your project classpath.
+3. **Add Driver Library:** Ensure `mysql-connector-j-8.0.33.jar` is inside the `lib/` directory and added to your project classpath.
 4. **Execute Application:** Run `Main.java`.
 5. **Verify Registration Flow (Prerequisite):** Create a customer first using Main Menu Option `1`.
-6. **Verify Invalid Login Flow:** Select Option `2`. Supply incorrect credentials. Validate that it shows the login error and returns you to the main menu.
-7. **Verify Successful Login Flow:** Select Option `2`. Supply correct registered credentials. Ensure the welcome banner prints your name and displays the dashboard.
-8. **Verify Options & Logout:** Trigger options 1–5, then enter `6` to log out and check that the application safely lands back on the Main Menu.
+6. **Verify Login Flow:** Select Option `2`. Login with valid credentials. Ensure the dashboard appears.
+7. **Verify New Account Flow:** Select option `1` (View Account Details). With no accounts, confirm the prompt to open one appears. Test invalid type (e.g., `"CHECKING"`) and invalid deposit (e.g., `500`) are rejected. Enter valid values and confirm the success banner appears.
+8. **Verify Existing Account Flow:** Select option `1` again. Confirm account details (Account No starting from 1001, Type, Balance, Status) are displayed correctly.
+9. **Verify Logout:** Enter `6` and confirm the application returns safely to the Main Menu.
 
 ---
 
@@ -233,7 +396,7 @@ To run and verify the system up to Stage 3:
 | **1** | Project setup, database schema foundation, and DBConnection utility | ✅ Complete | June 30, 2026 |
 | **2** | Customer registration flow (Customer model, DAO operations, menu prompts) | ✅ Complete | July 1, 2026 |
 | **3** | Customer Login & Authentication (Dashboard navigation, authentication DAO) | ✅ Complete | July 3, 2026 |
-| **4** | Account Creation & Balance Checking | ⬜ Not Started | — |
+| **4** | Account Creation & Balance Checking (Account model, AccountDAO, View Account Details flow) | ✅ Complete | July 10, 2026 |
 | **5** | Deposit Functionality | ⬜ Not Started | — |
 | **6** | Withdrawal with Custom Exception Handling | ⬜ Not Started | — |
 | **7** | Fund Transfer with SQL Transaction Atomicity | ⬜ Not Started | — |
@@ -243,7 +406,9 @@ To run and verify the system up to Stage 3:
 
 ---
 
-## 💡 Recommended Git Commit Message for Stage 3 Completion
+## 💡 Recommended Git Commit Messages
+
+### Stage 3
 ```
 feat: implement customer login and dashboard (Stage 3)
 
@@ -252,4 +417,16 @@ feat: implement customer login and dashboard (Stage 3)
 - Create CustomerMenu.java for post-login dashboard with options and stubs
 - Wire main menu option 2 to LoginMenu in Main.java
 - Download mysql-connector-j-8.0.33.jar to lib folder
+```
+
+### Stage 4
+```
+feat: implement account creation and balance checking (Stage 4)
+
+- Create Account.java model (POJO) matching accounts table
+- Create AccountDAO.java with createAccount() and getAccountsByCustomerId()
+- Update CustomerMenu.java: implement viewAccountDetails() for option 1
+- No-account flow: prompt to open SAVINGS/CURRENT with min deposit Rs.1000
+- Existing account flow: display account no, type, balance, status
+- All DB resources closed via try-with-resources
 ```
