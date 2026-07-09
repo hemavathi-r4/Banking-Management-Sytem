@@ -1,7 +1,7 @@
 # 📈 PROGRESS CONTEXT — Banking Management System
 
-**Date:** July 1, 2026 (Tuesday)  
-**Stage Completed:** Stage 2 — Customer Registration  
+**Date:** July 3, 2026 (Friday)  
+**Stage Completed:** Stage 3 — Customer Login & Authentication  
 **Tech Stack:** Core Java, JDBC, MySQL, Console Application
 
 ---
@@ -32,197 +32,130 @@
 
 **Goal:** Allow new customers to register via the console. Their data is saved to the `customers` table in MySQL. Duplicate emails and phone numbers are detected and rejected.
 
+**Files created/modified on Day 2:**
+- `src/model/Customer.java` (New POJO representation of customer records)
+- `src/dao/CustomerDAO.java` (New DAO class handling registration INSERT and checks)
+- `src/menu/RegistrationMenu.java` (New registration console UI)
+- `src/Main.java` (Modified to import and wire option 1 to `RegistrationMenu`)
+
 ---
 
-### 📁 File 1: `src/model/Customer.java` — NEW
+## 📅 Day 3 — July 3, 2026 (Friday)
+
+### Stage 3 — Customer Login & Authentication ✅
+
+**Goal:** Implement Customer Login so that registered customers can authenticate using their email and password. Upon successful login, display a Customer Dashboard menu with options for account details, deposits, withdrawals, fund transfers, and statements (stubs for now), along with a functional logout option.
+
+---
+
+### 📁 File 1: `src/dao/CustomerDAO.java` — MODIFIED
+
+**What changed:**
+- Added a `loginCustomer(String email, String password)` method to query the database.
+- Runs `SELECT * FROM customers WHERE email = ? AND password = ?` safely via `PreparedStatement`.
+- Returns a fully-populated `Customer` object if a matching row is found, or `null` if credentials are invalid.
+- Catches `SQLException` locally to prevent the app from crashing in case of database connectivity issues.
+
+---
+
+### 📁 File 2: `src/menu/LoginMenu.java` — NEW
 
 **What it is:**  
-A model (POJO) class that represents a single bank customer. Each instance of this class holds one customer's data.
-
-**Why it exists:**  
-Every row in the `customers` database table maps to one `Customer` object in Java. Instead of passing around 6 separate strings (name, email, phone, etc.), we bundle them into one clean object. This is how professional Java applications handle data.
+A console menu class that handles the user interface for customer login.
 
 **What's inside:**
-
-| Element | Details |
-|---------|---------|
-| **Fields (6)** | `customerId`, `name`, `email`, `phone`, `password`, `address` — all `private` |
-| **Constructor 1** | No-argument — creates an empty object, set values later with setters |
-| **Constructor 2** | `(name, email, phone, password, address)` — used during registration (no ID yet, because MySQL auto-generates it) |
-| **Constructor 3** | `(customerId, name, email, phone, password, address)` — used when reading data from the database (ID is known) |
-| **Getters & Setters** | One getter and one setter for each of the 6 fields |
-| **`toString()`** | Returns a formatted string for easy printing/debugging. Intentionally excludes the password for security |
-
-**OOP Concept Demonstrated:**  
-**Encapsulation** — All fields are `private`. No other class can directly access or modify them. Access is controlled through public getter/setter methods. This protects data integrity and allows us to add validation logic in setters later if needed.
-
-**Database Mapping:**
-```
-Customer.java Field  →  customers Table Column
-─────────────────────────────────────────────
-customerId           →  customer_id (INT, PK, AUTO_INCREMENT)
-name                 →  name (VARCHAR 100, NOT NULL)
-email                →  email (VARCHAR 100, NOT NULL, UNIQUE)
-phone                →  phone (VARCHAR 15, NOT NULL, UNIQUE)
-password             →  password (VARCHAR 255, NOT NULL)
-address              →  address (VARCHAR 255, nullable)
-```
+- Prompts the user for email and password.
+- Trims and validates inputs (making sure email and password are not empty).
+- Calls `customerDAO.loginCustomer(email, password)`.
+- If login succeeds → redirects to `CustomerMenu` to display the customer dashboard.
+- If login fails → displays `[ERROR] Invalid email or password` and returns to the main menu.
 
 ---
 
-### 📁 File 2: `src/dao/CustomerDAO.java` — NEW
+### 📁 File 3: `src/menu/CustomerMenu.java` — NEW
 
 **What it is:**  
-A Data Access Object (DAO) class that handles all database operations related to customers.
-
-**Why it exists:**  
-The DAO pattern separates database logic from the rest of the application. The menu class doesn't need to know SQL — it just calls `customerDAO.registerCustomer(customer)`. If we ever switch from MySQL to PostgreSQL, we only change the DAO files — nothing else.
+The post-login dashboard console UI.
 
 **What's inside:**
-
-| Method | What It Does | SQL Used |
-|--------|--------------|----------|
-| `registerCustomer(Customer)` | Validates uniqueness, then INSERTs customer into DB | `INSERT INTO customers (name, email, phone, password, address) VALUES (?, ?, ?, ?, ?)` |
-| `emailExists(String email)` | Checks if an email is already registered | `SELECT COUNT(*) FROM customers WHERE email = ?` |
-| `phoneExists(String phone)` | Checks if a phone number is already registered | `SELECT COUNT(*) FROM customers WHERE phone = ?` |
-
-**How `registerCustomer()` works step-by-step:**
-1. Calls `emailExists()` — if the email is taken, prints an error and returns `false`.
-2. Calls `phoneExists()` — if the phone is taken, prints an error and returns `false`.
-3. If both are unique, opens a database connection using `DBConnection.getConnection()`.
-4. Creates a `PreparedStatement` with the INSERT query.
-5. Sets the 5 placeholder values (`?`) using `setString()`.
-6. Calls `executeUpdate()` which runs the INSERT and returns the number of rows affected.
-7. If 1 row was inserted → prints success message and returns `true`.
-8. If a `SQLException` occurs → catches it, prints a friendly error, and returns `false` (app does NOT crash).
-
-**Key Technical Decisions:**
-
-| Decision | Why |
-|----------|-----|
-| **`PreparedStatement` over `Statement`** | Prevents SQL injection attacks. `PreparedStatement` escapes special characters in user input automatically. Also more performant because the DB can cache the query plan. |
-| **`try-with-resources`** | Java auto-closes the `Connection` and `PreparedStatement` when the `try` block ends, even if an exception occurs. This prevents resource leaks (unclosed database connections). |
-| **`SQLException` catch blocks** | Every database method catches `SQLException` and prints a user-friendly error. The application never terminates unexpectedly due to a database error. |
-| **Duplicate checks before INSERT** | We check email and phone separately so we can give the user a specific error message ("email already exists" vs "phone already exists") instead of a generic database error. |
+- Welcomes the customer by name: `"Welcome, [customer name]!"`.
+- Displays a dashboard menu loop:
+  1. View Account Details (Stub — Stage 4)
+  2. Deposit (Stub — Stage 5)
+  3. Withdraw (Stub — Stage 6)
+  4. Fund Transfer (Stub — Stage 7)
+  5. Mini Statement (Stub — Stage 8)
+  6. Logout (exits loop, returning to LoginMenu and back to Main Menu)
 
 ---
 
-### 📁 File 3: `src/menu/RegistrationMenu.java` — NEW
+### 📁 File 4: `src/Main.java` — MODIFIED
 
-**What it is:**  
-A console menu class that handles the user interface for customer registration.
-
-**Why it exists:**  
-Keeps UI/input-output logic separate from business logic and database logic. This follows the **Separation of Concerns** principle:
-- `Main.java` → controls the main menu loop
-- `RegistrationMenu.java` → handles registration input/output
-- `CustomerDAO.java` → handles database operations
-- `Customer.java` → holds customer data
-
-**What's inside:**
-
-| Element | Details |
-|---------|---------|
-| **Field** | `CustomerDAO customerDAO` — instance created in the constructor |
-| **Constructor** | Initializes `customerDAO = new CustomerDAO()` |
-| **`showRegistrationForm(Scanner)`** | Displays the registration form, collects input, validates, creates a `Customer` object, calls DAO |
-
-**How `showRegistrationForm()` works:**
-1. Prints a "CUSTOMER REGISTRATION" header.
-2. Prompts the user for: Name, Email, Phone, Password, Address.
-3. Reads each input using `scanner.nextLine().trim()`.
-4. **Validates:** If name, email, phone, or password is empty → prints error and returns (address is optional).
-5. Creates a `Customer` object using the registration constructor (no ID).
-6. Calls `customerDAO.registerCustomer(newCustomer)` which handles the database work.
-
-**Why Scanner is passed as a parameter (not created inside):**  
-Creating multiple `Scanner` objects on `System.in` causes bugs in Java. The single `Scanner` created in `Main.java` is shared across all menu classes by passing it as a method parameter.
+**What changed:**
+- Imported `menu.LoginMenu`.
+- Instantiated `LoginMenu loginMenu = new LoginMenu();` next to `RegistrationMenu`.
+- Wired Option `2` ("Customer Login") to `loginMenu.showLoginForm(scanner);` replacing the Stage 2 stub message.
 
 ---
 
-### 📁 File 4: `src/Main.java` — MODIFIED (minimal changes)
-
-**What changed (only 3 lines):**
-
-```diff
- import database.DBConnection;
-+import menu.RegistrationMenu;
-
- ...
-
- Scanner scanner = new Scanner(System.in);
-+RegistrationMenu registrationMenu = new RegistrationMenu();
- boolean running = true;
-
- ...
-
- case "1":
--    System.out.println("\n>> Registration will be implemented in Stage 3.\n");
-+    registrationMenu.showRegistrationForm(scanner);
-     break;
-```
-
-**Why so few changes:**  
-Because we followed modular design. All the real logic lives in `RegistrationMenu` and `CustomerDAO`. `Main.java` only needs to know that a `RegistrationMenu` exists and how to call it. This is the benefit of separation of concerns.
-
----
-
-## 🏗️ Architecture Flow — How Registration Works End-to-End
+## 🏗️ Architecture Flow — How Login Works End-to-End
 
 ```
 User runs the application
         │
         ▼
-Main.java tests DB connection → [OK] Database connection successful!
+Main menu displays → User selects "2. Customer Login"
         │
         ▼
-Main menu displays → User selects "1. Register"
+Main.java calls → loginMenu.showLoginForm(scanner)
         │
         ▼
-Main.java calls → registrationMenu.showRegistrationForm(scanner)
+LoginMenu prompts for: Email and Password
         │
         ▼
-RegistrationMenu prompts for: Name, Email, Phone, Password, Address
+Input validation → Are email/password filled? (If no → error & return)
         │
         ▼
-Input validation → Are required fields filled? (If no → error & return)
+Calls → customerDAO.loginCustomer(email, password)
         │
-        ▼
-Creates → new Customer(name, email, phone, password, address)
+        ├──→ If match found → Returns Customer object
+        │         │
+        │         ▼
+        │    LoginMenu redirects to → customerMenu.showDashboard(customer, scanner)
+        │         │
+        │         ▼
+        │    Customer dashboard shows options:
+        │      - Options 1-5: Print stub message
+        │      - Option 6: "Logging out..." → Exits loop and returns to Main Menu
         │
-        ▼
-Calls → customerDAO.registerCustomer(customer)
-        │
-        ├──→ emailExists(email)?  → Yes → "[ERROR] Email already registered" → return false
-        │
-        ├──→ phoneExists(phone)?  → Yes → "[ERROR] Phone already registered" → return false
-        │
-        └──→ Both unique? → INSERT INTO customers → "✓ Registration Successful!" → return true
-                │
-                ▼
-        Back to Main Menu (loop continues)
+        └──→ If no match → Prints "[ERROR] Invalid email or password"
+                  │
+                  ▼
+             Returns to Main Menu
 ```
 
 ---
 
-## 📂 Current Folder Structure After Stage 2
+## 📂 Current Folder Structure After Stage 3
 
 ```
 BMS/
 ├── src/
 │   ├── model/
-│   │   └── Customer.java          ← NEW (Stage 2)
+│   │   └── Customer.java          ← Stage 2
 │   ├── dao/
-│   │   └── CustomerDAO.java       ← NEW (Stage 2)
+│   │   └── CustomerDAO.java       ← MODIFIED (Stage 3)
 │   ├── database/
 │   │   └── DBConnection.java      ← Stage 1 (unchanged)
 │   ├── exception/                 ← (empty — future stages)
 │   ├── menu/
-│   │   └── RegistrationMenu.java  ← NEW (Stage 2)
-│   └── Main.java                  ← MODIFIED (3 lines added)
+│   │   ├── RegistrationMenu.java  ← Stage 2
+│   │   ├── LoginMenu.java         ← NEW (Stage 3)
+│   │   └── CustomerMenu.java      ← NEW (Stage 3)
+│   └── Main.java                  ← MODIFIED (Stage 3)
 ├── sql/
-│   └── bank_management.sql        ← Stage 1 (unchanged)
-├── lib/                           ← (mysql-connector-j.jar)
+│   └── bank_management.sql        ← Stage 1
+├── lib/                           ← (contains mysql-connector-j-8.0.33.jar)
 ├── PROJECT_CONTEXT.md
 ├── PROGRESS_CONTEXT.md            ← This file
 └── NEXT_TASK.md
@@ -230,15 +163,15 @@ BMS/
 
 ---
 
-## 🧠 OOP & Design Concepts Used in Stage 2
+## 🧠 OOP & Design Concepts Used in Stage 3
 
 | Concept | Where It's Applied |
 |---------|-------------------|
-| **Encapsulation** | `Customer.java` — all fields are `private`, accessed via public getters/setters |
-| **DAO Pattern** | `CustomerDAO.java` — all database logic isolated in one class |
-| **Separation of Concerns** | Each class has one job: Model holds data, DAO talks to DB, Menu handles UI, Main controls flow |
-| **Single Responsibility Principle** | No class does more than its one defined purpose |
-| **Defensive Programming** | Input validation in RegistrationMenu, duplicate checks in DAO, SQLException handling everywhere |
+| **Encapsulation** | `Customer` objects instantiated from the DB encapsulate user data, which is passed securely between menus. |
+| **DAO Pattern** | Login query resides inside `CustomerDAO.java`. The LoginMenu only expects a Customer object or null back. |
+| **Separation of Concerns** | Logic is separated: UI menu classes manage input/output formatting, DAO manages connection & execution, Model encapsulates data. |
+| **Single Responsibility** | LoginMenu controls credential input, CustomerMenu controls dashboard navigation, CustomerDAO controls database authentication. |
+| **Defensive Programming** | Parameter binding protects against SQL Injection, input validation prevents blank login attempts, exception handling handles DB errors gracefully. |
 
 ---
 
@@ -248,7 +181,7 @@ BMS/
 |-------|-------------|--------|------|
 | 1 | Project setup, DB schema, DB connection | ✅ Complete | June 30, 2026 |
 | 2 | Customer Registration (model, DAO, menu) | ✅ Complete | July 1, 2026 |
-| 3 | Customer Login & Authentication | ⬜ Not started | — |
+| 3 | Customer Login & Authentication | ✅ Complete | July 3, 2026 |
 | 4 | Account Creation & Balance Checking | ⬜ Not started | — |
 | 5 | Deposit Functionality | ⬜ Not started | — |
 | 6 | Withdrawal with Custom Exceptions | ⬜ Not started | — |
@@ -259,13 +192,14 @@ BMS/
 
 ---
 
-## 💡 Suggested Git Commit Message for Stage 2
+## 💡 Suggested Git Commit Message for Stage 3
 
 ```
-feat: implement customer registration (Stage 2)
+feat: implement customer login and dashboard (Stage 3)
 
-- Add Customer model class (model/Customer.java)
-- Add CustomerDAO with registration and duplicate checks (dao/CustomerDAO.java)
-- Add RegistrationMenu for console registration UI (menu/RegistrationMenu.java)
-- Wire registration to main menu option 1 (Main.java)
+- Add loginCustomer method in CustomerDAO.java
+- Create LoginMenu.java for credential validation and prompt flow
+- Create CustomerMenu.java for post-login dashboard with options and stubs
+- Wire main menu option 2 to LoginMenu in Main.java
+- Download mysql-connector-j-8.0.33.jar to lib folder
 ```

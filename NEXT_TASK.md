@@ -1,6 +1,6 @@
 # 📌 NEXT TASK — Stage 3: Customer Login & Authentication
 
-**Planned Date:** July 2, 2026 (Wednesday)  
+**Planned Date:** July 3, 2026 (Friday)  
 **Prerequisite:** Stage 2 must be tested and working (Customer Registration)
 
 ---

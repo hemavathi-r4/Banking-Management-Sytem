@@ -1,0 +1,255 @@
+# 📘 PROJECT EXPLANATION — Banking Management System
+
+## 🏗️ Project Overview & Tech Stack
+A console-based Banking Management System built with Core Java and MySQL, designed to demonstrate OOP, JDBC, exception handling, clean project architecture, and database management principles.
+- **Tech Stack:** Core Java (Java SE), JDBC (Java Database Connectivity), MySQL Database, Console User Interface
+- **Key Design Focus:** Object-Oriented Programming (OOP) principles, Data Access Object (DAO) pattern, Separation of Concerns, Exception Handling.
+
+---
+
+## 📅 Chronological Development History
+
+### 📅 Stage 1 — Project Setup & Database Foundation (June 30, 2026)
+In Stage 1, we set up the workspace, directory architecture, database schema, connection utility, and core application entry point.
+
+**Key Achievements:**
+- Created the folder structure containing package directories: `model`, `dao`, `database`, `exception`, `menu`, `util`, and `lib/`.
+- Designed and wrote the database schema script (`sql/bank_management.sql`).
+- Built `DBConnection.java` — a static database connectivity utility that manages the JDBC driver, DB URL, and credentials.
+- Created `Main.java` — the main entry point, containing a database connection sanity test and the primary menu loop (with options).
+
+**Files Created in Stage 1:**
+- `sql/bank_management.sql`: Database schema definition containing structure for accounts, customers, transactions, and admins.
+- `src/database/DBConnection.java`: JDBC utility using `DriverManager.getConnection()`.
+- `src/Main.java`: Entry point verifying startup status and driving the application console loop.
+
+---
+
+### 📅 Stage 2 — Customer Registration (July 1, 2026)
+Stage 2 focused on enabling new customer registration via the console UI, validating input, checking for uniqueness in the database, and saving the customer record to MySQL.
+
+**Key Achievements:**
+- Developed the model representation of a Customer (`Customer.java`).
+- Developed the database access layer for Customer operations (`CustomerDAO.java`), implementing validation checks for email/phone duplicate prevention.
+- Built `RegistrationMenu.java` to handle user interactive prompts.
+- Wired the registration option to `Main.java`.
+
+---
+
+### 📅 Stage 3 — Customer Login & Authentication (July 3, 2026)
+Stage 3 focused on implementing the customer authentication system. This allows registered customers to securely log in using their email and password, landing on a functional Customer Dashboard with stubs for future features.
+
+**Key Achievements:**
+- Added a credential-matching database validation method (`loginCustomer`) in `CustomerDAO.java`.
+- Developed `LoginMenu.java` to collect email and password credentials and handle the login user interface.
+- Developed `CustomerMenu.java` to display the Customer Dashboard upon successful authentication, offering stubs for Stage 4–8 features and a fully functional logout mechanism.
+- Wired the Main Menu Option 2 ("Customer Login") to the newly created `LoginMenu` in `Main.java`.
+
+---
+
+## 📂 Current Folder Structure
+```
+BMS/
+├── src/
+│   ├── model/
+│   │   └── Customer.java          ← Stage 2 Model (POJO)
+│   ├── dao/
+│   │   └── CustomerDAO.java       ← Stage 2 & 3 Data Access Object (Database Logic)
+│   ├── database/
+│   │   └── DBConnection.java      ← Stage 1 JDBC Connection Utility
+│   ├── exception/                 ← Empty (reserved for custom exceptions in future stages)
+│   ├── menu/
+│   │   ├── RegistrationMenu.java  ← Stage 2 Registration Console UI
+│   │   ├── LoginMenu.java         ← Stage 3 Login Console UI
+│   │   └── CustomerMenu.java      ← Stage 3 Customer Dashboard Console UI
+│   └── Main.java                  ← Modified Entry Point (Wired to Registration & Login)
+├── sql/
+│   └── bank_management.sql        ← Stage 1 DB schema SQL script
+├── lib/                           ← External JAR libraries (contains mysql-connector-j-8.0.33.jar)
+├── PROJECT_CONTEXT.md             ← Reference Project Context file
+├── PROGRESS_CONTEXT.md            ← Reference Progress Context file
+└── NEXT_TASK.md                   ← Reference Next Task file
+```
+
+---
+
+## 🗄️ Database Design & Schema
+The database named `bank_management` contains four major tables: `customers`, `accounts`, `transactions`, and `admins`.
+
+### Schema Details:
+
+| Table | Column Name | Data Type | Key / Constraints | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **`customers`** | `customer_id` | INT | Primary Key, Auto Increment | Unique internal identifier for each customer |
+| | `name` | VARCHAR(100) | NOT NULL | Customer's full name |
+| | `email` | VARCHAR(100) | NOT NULL, UNIQUE | Customer's unique email address (login identifier) |
+| | `phone` | VARCHAR(15) | NOT NULL, UNIQUE | Customer's unique phone number |
+| | `password` | VARCHAR(255) | NOT NULL | Password for customer portal access |
+| | `address` | VARCHAR(255) | Nullable | Optional physical address |
+| | `created_at` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Date/time of record creation |
+| **`accounts`** | `account_no` | INT | Primary Key (starts at 1001) | Unique account number |
+| | `customer_id` | INT | Foreign Key (→ `customers.customer_id`) | References the owner of the account (ON DELETE CASCADE) |
+| | `account_type` | VARCHAR(20) | NOT NULL | Type of account (e.g., SAVINGS, CURRENT) |
+| | `balance` | DECIMAL(15,2)| DEFAULT 0.00 | Current account balance |
+| | `status` | VARCHAR(20) | DEFAULT 'ACTIVE' | Account state (ACTIVE, CLOSED, etc.) |
+| **`transactions`** | `transaction_id`| INT | Primary Key, Auto Increment | Unique transaction identifier |
+| | `from_account`| INT | Foreign Key (→ `accounts.account_no`) | Originating account (ON DELETE CASCADE, Nullable for external deposits) |
+| | `to_account` | INT | Foreign Key (→ `accounts.account_no`) | Receiving account (ON DELETE CASCADE, Nullable for external withdrawals) |
+| | `transaction_type`| VARCHAR(20)| NOT NULL | E.g., DEPOSIT, WITHDRAWAL, TRANSFER |
+| | `amount` | DECIMAL(15,2)| NOT NULL | Amount transacted |
+| | `transaction_time`| TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Date/time of transaction execution |
+| | `remarks` | VARCHAR(255) | Nullable | Custom user remarks |
+| **`admins`** | `admin_id` | INT | Primary Key, Auto Increment | Unique administrator ID |
+| | `username` | VARCHAR(50) | NOT NULL, UNIQUE | Username for admin login |
+| | `password` | VARCHAR(255) | NOT NULL | Password for admin login |
+
+*Note: Default admin credentials are username: `admin` / password: `admin123`.*
+
+---
+
+## 🔍 Detailed Component Implementations (Stage 3 Focus)
+
+### 1. DAO Extension: `src/dao/CustomerDAO.java`
+We extended the data access object class to handle verification of user credentials.
+- **Added Method:** `public Customer loginCustomer(String email, String password)`
+- **Logic:**
+  1. Opens a database connection using `DBConnection.getConnection()`.
+  2. Runs query `SELECT * FROM customers WHERE email = ? AND password = ?` safely via a `PreparedStatement`.
+  3. Binds parameter 1 to the input email and parameter 2 to the input password.
+  4. Executes the query using `executeQuery()` and returns a `ResultSet`.
+  5. If `rs.next()` is true, constructs a new `Customer` object utilizing the full database constructor (with `customer_id` and all fields loaded) and returns it.
+  6. If no matches are found, returns `null`.
+  7. Catches `SQLException` gracefully, outputting a descriptive error message to the console instead of crashing the system.
+
+### 2. Login UI: `src/menu/LoginMenu.java`
+Handles the credential gathering interface.
+- **Dependencies:** Instantiates `CustomerDAO` (to verify credentials) and `CustomerMenu` (to display the dashboard on success).
+- **Core Method:** `public void showLoginForm(Scanner scanner)`
+  - Prompts for email and password.
+  - Validates that fields are not empty (trims inputs).
+  - Calls `customerDAO.loginCustomer(email, password)`.
+  - On success: delegates to `CustomerMenu.showDashboard(customer, scanner)`.
+  - On failure: displays `[ERROR] Invalid email or password` and returns execution control back to the Main Menu.
+
+### 3. Customer Dashboard UI: `src/menu/CustomerMenu.java`
+Handles the post-authentication environment for logged-in users.
+- **Core Method:** `public void showDashboard(Customer customer, Scanner scanner)`
+  - Displays a dashboard console menu greeting the customer by name: `Welcome, [customer name]!`.
+  - Prompts choice in a loop for six options:
+    1. View Account Details *(Stub for Stage 4)*
+    2. Deposit *(Stub for Stage 5)*
+    3. Withdraw *(Stub for Stage 6)*
+    4. Fund Transfer *(Stub for Stage 7)*
+    5. Mini Statement *(Stub for Stage 8)*
+    6. Logout *(Exits loop, returns to LoginMenu, which returns to Main Menu)*
+
+### 4. Entry Point: `src/Main.java` (Updated in Stage 3)
+- **Modifications Made:**
+  - Imported `menu.LoginMenu`.
+  - Instantiated `LoginMenu loginMenu = new LoginMenu();` before entering the main loop.
+  - Replaced the Option 2 stub print with `loginMenu.showLoginForm(scanner);` in the choice switch block.
+
+---
+
+## 🏗️ Architecture Flow: Customer Login Process
+Below is the sequential end-to-end execution flow during customer login:
+
+```
+[User runs the application]
+            │
+            ▼
+[Main.java] displays Main Menu ──► User inputs "2" (Customer Login)
+            │
+            ▼
+[Main.java] invokes ───────────► LoginMenu.showLoginForm(scanner)
+                                            │
+                                            ▼
+                               [Console prompts for input:]
+                               Email, Password
+                                            │
+                                            ▼
+                               [Trims and validates input]
+                               Empty fields? ──► Yes ──► Error & return to Main Menu
+                                             │ No
+                                             ▼
+                               Invokes CustomerDAO.loginCustomer(email, password)
+                                             │
+                        ┌────────────────────┴────────────────────┐
+                        ▼                                         ▼
+                 [Query Matches Record]                     [No Record Found]
+                        │                                         │
+                        ▼                                         ▼
+            Returns loaded Customer Object                 Returns null
+                        │                                         │
+                        ▼                                         ▼
+            LoginMenu invokes                               LoginMenu prints
+     CustomerMenu.showDashboard(...)                 "[ERROR] Invalid email or password"
+                        │                                         │
+                        ▼                                         ▼
+           [Customer Dashboard Loop]                      [Return to Main Menu]
+             1-5: Print Stub Msg
+             6: Logout ──► Back to Main Menu
+```
+
+---
+
+## 🧠 OOP & Software Design Patterns Applied
+The project enforces structured, enterprise-ready software patterns:
+
+1. **Encapsulation:** Data variables in `Customer.java` are private and accessed via getters/setters. Sensitive info (password) is omitted from `toString()`.
+2. **Data Access Object (DAO) Pattern:** SQL queries and DB logic live strictly inside `CustomerDAO.java`. The presentation classes (`LoginMenu`, `CustomerMenu`) know nothing about MySQL drivers, connections, or SQL statement semantics; they handle Java objects and parameters.
+3. **Separation of Concerns (SoC):** Distinct classes represent separate application layers:
+   - `Main.java`: Router and lifecycle coordinator.
+   - `Customer.java`: Model data class (POJO).
+   - `CustomerDAO.java`: DB persistence layer.
+   - `LoginMenu.java` & `CustomerMenu.java`: Presentation and interactive input layer.
+4. **Single Responsibility Principle (SRP):** Each class has exactly one responsibility.
+5. **Defensive Programming:**
+   - Pre-validation of input strings to avoid unnecessary SQL network queries.
+   - Parametrized SQL statement usage (`PreparedStatement`) to prevent SQL Injection vulnerability.
+   - Catching `SQLException` locally inside helper connection blocks to prevent application termination on database communication failures.
+   - Centralized database resource cleanups with `try-with-resources`.
+
+---
+
+## ⚙️ Setup & Verification Steps
+
+To run and verify the system up to Stage 3:
+1. **Initialize Database:** Ensure `sql/bank_management.sql` has been executed in your MySQL database instance.
+2. **Update Connection Parameters:** Open `src/database/DBConnection.java` and replace values with your database credentials.
+3. **Add Driver Library:** Download the MySQL Connector/J driver (`mysql-connector-j-8.0.33.jar`), place it inside the `lib/` directory, and add it to your project classpath.
+4. **Execute Application:** Run `Main.java`.
+5. **Verify Registration Flow (Prerequisite):** Create a customer first using Main Menu Option `1`.
+6. **Verify Invalid Login Flow:** Select Option `2`. Supply incorrect credentials. Validate that it shows the login error and returns you to the main menu.
+7. **Verify Successful Login Flow:** Select Option `2`. Supply correct registered credentials. Ensure the welcome banner prints your name and displays the dashboard.
+8. **Verify Options & Logout:** Trigger options 1–5, then enter `6` to log out and check that the application safely lands back on the Main Menu.
+
+---
+
+## 📊 Overall Roadmap & Completion Progress
+
+| Stage | Goal / Description | Status | Completion Date |
+| :---: | :--- | :---: | :--- |
+| **1** | Project setup, database schema foundation, and DBConnection utility | ✅ Complete | June 30, 2026 |
+| **2** | Customer registration flow (Customer model, DAO operations, menu prompts) | ✅ Complete | July 1, 2026 |
+| **3** | Customer Login & Authentication (Dashboard navigation, authentication DAO) | ✅ Complete | July 3, 2026 |
+| **4** | Account Creation & Balance Checking | ⬜ Not Started | — |
+| **5** | Deposit Functionality | ⬜ Not Started | — |
+| **6** | Withdrawal with Custom Exception Handling | ⬜ Not Started | — |
+| **7** | Fund Transfer with SQL Transaction Atomicity | ⬜ Not Started | — |
+| **8** | Transaction History & Mini Statement Queries | ⬜ Not Started | — |
+| **9** | Administrator Operations Module | ⬜ Not Started | — |
+| **10** | System Refactoring, Polish, and Detailed README documentation | ⬜ Not Started | — |
+
+---
+
+## 💡 Recommended Git Commit Message for Stage 3 Completion
+```
+feat: implement customer login and dashboard (Stage 3)
+
+- Add loginCustomer method in CustomerDAO.java
+- Create LoginMenu.java for credential validation and prompt flow
+- Create CustomerMenu.java for post-login dashboard with options and stubs
+- Wire main menu option 2 to LoginMenu in Main.java
+- Download mysql-connector-j-8.0.33.jar to lib folder
+```

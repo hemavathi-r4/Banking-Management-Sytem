@@ -165,4 +165,46 @@ public class CustomerDAO {
 
         return false;
     }
+
+    // --------------------------------------------------
+    // Method 4: Authenticate and log in a customer
+    // --------------------------------------------------
+    /**
+     * Validates customer credentials against the database.
+     *
+     * @param email    the customer's email address
+     * @param password the customer's password
+     * @return a Customer object if credentials match, or null if they don't
+     */
+    public Customer loginCustomer(String email, String password) {
+        String sql = "SELECT * FROM customers WHERE email = ? AND password = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, email);
+            pstmt.setString(2, password);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    // Reconstruct Customer object using full constructor (Constructor 3)
+                    return new Customer(
+                        rs.getInt("customer_id"),
+                        rs.getString("name"),
+                        rs.getString("email"),
+                        rs.getString("phone"),
+                        rs.getString("password"),
+                        rs.getString("address")
+                    );
+                }
+            }
+
+        } catch (SQLException e) {
+            System.out.println("\n[ERROR] Login failed due to a database error.");
+            System.out.println("        Details: " + e.getMessage());
+        }
+
+        return null;
+    }
 }
+

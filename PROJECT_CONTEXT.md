@@ -1,7 +1,7 @@
 # 📋 PROJECT CONTEXT — Banking Management System
 
-**Last Updated:** 2026-07-01 (Tuesday)  
-**Current Stage:** Stage 2 ✅ Complete  
+**Last Updated:** 2026-07-03 (Friday)  
+**Current Stage:** Stage 3 ✅ Complete  
 **Tech Stack:** Core Java, JDBC, MySQL, Console Application
 
 ---
@@ -12,57 +12,43 @@ A console-based Banking Management System built with Core Java and MySQL, design
 
 ---
 
-## 📅 Work Done Today (July 1, 2026)
+## 📅 Work Done Today (July 3, 2026)
 
-### Stage 2 — Customer Registration
+### Stage 3 — Customer Login & Authentication
 
 | Task | Status |
 |------|--------|
-| Created `src/model/Customer.java` — model class with fields, constructors, getters/setters, toString() | ✅ Done |
-| Created `src/dao/CustomerDAO.java` — DAO with registerCustomer(), emailExists(), phoneExists() | ✅ Done |
-| Created `src/menu/RegistrationMenu.java` — console UI for registration input | ✅ Done |
-| Updated `src/Main.java` — wired menu option 1 to RegistrationMenu | ✅ Done |
+| Modified `src/dao/CustomerDAO.java` — added `loginCustomer(email, password)` database authentication check | ✅ Done |
+| Created `src/menu/LoginMenu.java` — console UI for credentials collection, triggers DAO authentication | ✅ Done |
+| Created `src/menu/CustomerMenu.java` — post-login Customer Dashboard with stubs (Stage 4-8) and functional logout | ✅ Done |
+| Updated `src/Main.java` — imported `LoginMenu` and wired Option 2 to `showLoginForm()` | ✅ Done |
+| Downloaded `mysql-connector-j-8.0.33.jar` — saved to `lib/` and resolved database runner dependencies | ✅ Done |
 
 ### Files Created / Modified Today
 
 | File | Purpose |
 |------|---------|
-| `src/model/Customer.java` | Model class mapping to the `customers` table — encapsulation with private fields, 3 constructors, getters/setters, toString() |
-| `src/dao/CustomerDAO.java` | Data Access Object — handles registration INSERT, duplicate email/phone checks using PreparedStatement |
-| `src/menu/RegistrationMenu.java` | Console menu — collects user input (name, email, phone, password, address), validates, delegates to DAO |
-| `src/Main.java` *(modified)* | Added RegistrationMenu import and wired option 1 to `showRegistrationForm()` |
+| `src/dao/CustomerDAO.java` *(modified)* | Added SQL validation for user credentials using `PreparedStatement` returning matching `Customer` object. |
+| `src/menu/LoginMenu.java` | Prompts user for email and password, validates non-empty status, queries DAO, and redirects to dashboard. |
+| `src/menu/CustomerMenu.java` | Provides customer console view post-login, allowing logout and showing stubs for transactions. |
+| `src/Main.java` *(modified)* | Replaced option 2 stub with actual login UI route instantiation and launch. |
+| `lib/mysql-connector-j-8.0.33.jar` | MySQL Connector/J driver dependency downloaded to facilitate JDBC database queries. |
 
 ---
 
-## 📅 Previous Work (June 30, 2026)
+## 📅 Previous Work
 
-### Stage 1 — Project Setup & Database Foundation
+### Stage 2 — Customer Registration (July 1, 2026)
+- Created `Customer.java` model class (POJO).
+- Created `CustomerDAO.java` with registration logic and duplicate validation checks.
+- Created `RegistrationMenu.java` for console user interactive registration.
+- Wired Option 1 in `Main.java` to registration menu.
 
-| Task | Status |
-|------|--------|
-| Created project folder structure (`src/model`, `dao`, `database`, `exception`, `menu`, `util`, `lib/`) | ✅ Done |
-| Wrote SQL script (`sql/bank_management.sql`) | ✅ Done |
-| Created `src/database/DBConnection.java` — centralized JDBC connection utility | ✅ Done |
-| Created `src/Main.java` — entry point with DB test and main menu loop | ✅ Done |
-
-### Database Schema
-
-| Table | Key Details |
-|-------|-------------|
-| `customers` | customer_id (PK), email (UNIQUE), phone (UNIQUE), password, address, created_at |
-| `accounts` | account_no (PK, starts at 1001), customer_id (FK → customers), account_type, balance, status |
-| `transactions` | transaction_id (PK), from_account (FK), to_account (FK), transaction_type, amount, transaction_time, remarks |
-| `admins` | admin_id (PK), username (UNIQUE), password — default: admin / admin123 |
-
-### Key Design Decisions
-
-- **`DBConnection` as a static utility:** All DB access goes through one class — easy to update credentials in one place (Single Responsibility Principle).
-- **try-with-resources** used for auto-closing connections to prevent resource leaks.
-- **Account numbers start at 1001** for realism.
-- **SQL foreign keys with `ON DELETE CASCADE`** on accounts → customers, so deleting a customer cleans up their accounts.
-- **DAO Pattern:** Database logic is separated from UI logic (CustomerDAO vs RegistrationMenu).
-- **Shared Scanner:** A single Scanner instance is created in Main.java and passed to menu classes to avoid System.in conflicts.
-- **PreparedStatement over Statement:** Used for SQL injection prevention and cleaner code.
+### Stage 1 — Project Setup & Database Foundation (June 30, 2026)
+- Created project folder layout.
+- Wrote SQL script `bank_management.sql`.
+- Built central connectivity utility `DBConnection.java`.
+- Designed `Main.java` entry point, displaying loop and connectivity diagnostics.
 
 ---
 
@@ -72,19 +58,21 @@ A console-based Banking Management System built with Core Java and MySQL, design
 BMS/
 ├── src/
 │   ├── model/
-│   │   └── Customer.java       ← Stage 2
+│   │   └── Customer.java       ← Stage 2 POJO
 │   ├── dao/
-│   │   └── CustomerDAO.java    ← Stage 2
+│   │   └── CustomerDAO.java    ← Stage 2 & 3 DAO
 │   ├── database/
 │   │   └── DBConnection.java
 │   ├── exception/              ← (empty — future stages)
 │   ├── menu/
-│   │   └── RegistrationMenu.java  ← Stage 2
+│   │   ├── RegistrationMenu.java  ← Stage 2 UI
+│   │   ├── LoginMenu.java         ← Stage 3 Login UI
+│   │   └── CustomerMenu.java      ← Stage 3 Dashboard UI
 │   └── Main.java
 ├── sql/
 │   └── bank_management.sql
-├── lib/                        ← (mysql-connector-j.jar)
-├── PROJECT_CONTEXT.md
+├── lib/                        ← (mysql-connector-j-8.0.33.jar)
+├── PROJECT_CONTEXT.md          ← This file
 └── NEXT_TASK.md
 ```
 
@@ -94,9 +82,9 @@ BMS/
 
 - [x] Run `sql/bank_management.sql` in MySQL
 - [x] Update password in `DBConnection.java` to match your MySQL root password
-- [x] Download `mysql-connector-j.jar` and place in `lib/`
-- [x] Open project in IntelliJ, mark `src` as Sources Root, add JAR to libraries
-- [x] Verify `Main.java` runs and shows `[OK] Database connection successful!`
+- [x] Download `mysql-connector-j-8.0.33.jar` and place in `lib/`
+- [x] Compile all Java files to build class files
+- [x] Verify `Main.java` runs and displays menus properly
 
 ---
 
@@ -106,7 +94,7 @@ BMS/
 |-------|-------------|--------|
 | 1 | Project setup, DB schema, DB connection | ✅ Complete |
 | 2 | Customer Registration (model, DAO, menu) | ✅ Complete |
-| 3 | Customer Login & Authentication | ⬜ Not started |
+| 3 | Customer Login & Authentication | ✅ Complete |
 | 4 | Account Creation & Balance Checking | ⬜ Not started |
 | 5 | Deposit Functionality | ⬜ Not started |
 | 6 | Withdrawal with Custom Exceptions | ⬜ Not started |

@@ -1,4 +1,5 @@
 import database.DBConnection;
+import menu.LoginMenu;
 import menu.RegistrationMenu;
 
 import java.sql.Connection;
@@ -49,6 +50,7 @@ public class Main {
         // --------------------------------------------------
         Scanner scanner = new Scanner(System.in);
         RegistrationMenu registrationMenu = new RegistrationMenu();  // Stage 2: Registration menu
+        LoginMenu loginMenu = new LoginMenu();                        // Stage 3: Login menu
         boolean running = true;
 
         while (running) {
@@ -61,7 +63,7 @@ public class Main {
                     registrationMenu.showRegistrationForm(scanner);  // Stage 2: Customer Registration
                     break;
                 case "2":
-                    System.out.println("\n>> Customer Login will be implemented in Stage 4.\n");
+                    loginMenu.showLoginForm(scanner);  // Stage 3: Customer Login
                     break;
                 case "3":
                     System.out.println("\n>> Admin Login will be implemented in Stage 10.\n");
