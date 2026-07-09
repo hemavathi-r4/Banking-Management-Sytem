@@ -1,71 +1,70 @@
-# 📌 NEXT TASK — Stage 5: Deposit Functionality
+# 📌 NEXT TASK — Stage 6: Withdrawal with Custom Exception Handling
 
-**Planned Date:** July 11, 2026 (Friday)  
-**Prerequisite:** Stage 4 must be tested and working (Account Creation & Balance Checking)
+**Planned Date:** July 12, 2026 (Saturday)  
+**Prerequisite:** Stage 5 must be tested and working (Deposit Functionality)
 
 ---
 
 ## 🎯 Goal
 
-Implement deposit functionality for logged-in customers. When a customer selects "2. Deposit" from the Customer Dashboard, the system should:
+Implement withdrawal functionality for logged-in customers. When a customer selects "3. Withdraw" from the Customer Dashboard, the system should:
 1. Fetch the customer's accounts and display them.
-2. Prompt the customer to select which account to deposit into.
-3. Prompt for a deposit amount (minimum Rs. 500).
-4. Update the account balance in the database.
-5. Log the transaction to the `transactions` table.
-6. Display a success confirmation with the updated balance.
+2. Prompt the customer to select which account to withdraw from.
+3. Prompt for a withdrawal amount (minimum Rs. 500).
+4. Validate that the account has sufficient funds.
+5. If insufficient: throw and catch a **custom exception** (`InsufficientFundsException`) — do NOT use a plain `if` check return.
+6. If sufficient: Update the account balance and log the transaction atomically.
+7. Display a success confirmation with the updated balance.
 
 ---
 
 ## 📝 Tasks
 
-### Task 1 — Create `Transaction.java` in `src/model/`
+### Task 1 — Create `InsufficientFundsException.java` in `src/exception/`
 
-- Create a POJO class representing a transaction matching the `transactions` database table.
+- Create a **custom checked exception** class extending `Exception`.
 - Fields:
-  - `private int transactionId`
-  - `private long fromAccount`
-  - `private long toAccount`
-  - `private String transactionType`
-  - `private double amount`
-  - `private String transactionTime`
-  - `private String remarks`
-- Implement default constructor, constructor for deposit (no `transactionId`, no `fromAccount`), and full constructor (for DB loading).
-- Implement getters, setters, and `toString()`.
+  - `private double amountRequested`
+  - `private double availableBalance`
+- Implement a constructor:
+  - `InsufficientFundsException(double amountRequested, double availableBalance)`
+  - Sets both fields and passes a descriptive message to `super()`:
+    - e.g. `"Insufficient funds. Requested: Rs. X.XX, Available: Rs. X.XX"`
+- Implement getters for both fields.
+- Override `getMessage()` if needed for a clean display.
 
 ---
 
-### Task 2 — Create `TransactionDAO.java` in `src/dao/`
+### Task 2 — Extend `TransactionDAO.java` in `src/dao/`
 
-- Implement data access logic for transactions:
-  - `depositAmount(long accountNo, double amount)`: Updates the account balance using:
-    - `UPDATE accounts SET balance = balance + ? WHERE account_no = ?`
-    - After successful update, insert a row into `transactions`:
-      - `INSERT INTO transactions (to_account, transaction_type, amount, remarks) VALUES (?, 'DEPOSIT', ?, ?)`
-    - Both SQL operations must be wrapped in a **single database transaction** (use `conn.setAutoCommit(false)` + `conn.commit()` / `conn.rollback()`).
-    - Handle `SQLException` gracefully.
-  - `getUpdatedBalance(long accountNo)`: Fetches and returns the latest balance for a given account:
-    - `SELECT balance FROM accounts WHERE account_no = ?`
+- Add a new method:
+  - `withdrawAmount(long accountNo, double amount) throws InsufficientFundsException`
+    - **Step 1:** Fetch the current balance using `getUpdatedBalance(accountNo)`.
+    - **Step 2:** If `balance < amount`, throw `new InsufficientFundsException(amount, balance)`.
+    - **Step 3:** If sufficient, run two SQL statements atomically (same pattern as `depositAmount`):
+      - `UPDATE accounts SET balance = balance - ? WHERE account_no = ?`
+      - `INSERT INTO transactions (from_account, transaction_type, amount, remarks) VALUES (?, 'WITHDRAWAL', ?, 'Self withdrawal')`
+    - **Step 4:** `conn.commit()` on success, `conn.rollback()` on any `SQLException`.
+    - **Step 5:** Always restore `conn.setAutoCommit(true)` and close in a `finally` block.
 
 ---
 
 ### Task 3 — Update `CustomerMenu.java` in `src/menu/`
 
-- Instantiate `TransactionDAO` in `CustomerMenu`.
-- Modify option `2` ("Deposit") to:
-  - Fetch accounts for the logged-in customer using `accountDAO.getAccountsByCustomerId()`.
-  - If no accounts exist:
-    - Display: `"You do not have any accounts to deposit into. Please open an account first."`
-    - Return to dashboard.
-  - If accounts exist:
-    - Display numbered list of accounts (Account No + Type).
-    - Prompt the customer to select which account to deposit into.
-    - Validate selection (must be a valid number in range).
-    - Prompt for deposit amount: `"Enter amount to deposit (Min Rs. 500): "`
-    - Validate: amount must be a valid number and `>= 500`.
-    - Call `transactionDAO.depositAmount(accountNo, amount)`.
-    - Fetch updated balance using `transactionDAO.getUpdatedBalance(accountNo)`.
-    - Display success confirmation with new balance.
+- Modify option `3` ("Withdraw") to call a new private `withdraw(customer, scanner)` method.
+- The `withdraw()` method must:
+  - Fetch accounts. If none: display message and return.
+  - Display numbered account list (same format as deposit).
+  - Validate account selection (same loop as deposit).
+  - Prompt for withdrawal amount (minimum Rs. 500, same loop as deposit).
+  - Call `transactionDAO.withdrawAmount(accountNo, amount)` inside a **try-catch** that catches `InsufficientFundsException`:
+    - On `InsufficientFundsException`: display:
+      ```
+      [!] Withdrawal Failed: Insufficient funds.
+          Requested : Rs. X,XXX.XX
+          Available : Rs. X,XXX.XX
+      ```
+    - On success: fetch updated balance, display the `✓ Withdrawal Successful!` banner.
 
 ---
 
@@ -73,69 +72,89 @@ Implement deposit functionality for logged-in customers. When a customer selects
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/model/Transaction.java` | NEW | Model representing the transactions table |
-| `src/dao/TransactionDAO.java` | NEW | DB logic for deposit update and transaction log insert |
-| `src/menu/CustomerMenu.java` | MODIFY | Implement Deposit flow for option 2 |
+| `src/exception/InsufficientFundsException.java` | NEW | Custom checked exception for insufficient balance |
+| `src/dao/TransactionDAO.java` | MODIFY | Add `withdrawAmount()` method |
+| `src/menu/CustomerMenu.java` | MODIFY | Implement Withdraw flow for option 3 |
 
 ---
 
 ## 🏗️ Expected Flow
 
 ```
-Customer Dashboard → User selects "2. Deposit"
+Customer Dashboard → User selects "3. Withdraw"
     │
     ▼
 accountDAO.getAccountsByCustomerId(customerId)
     │
-    ├── No accounts ──► "No accounts found. Open an account first."
-    │                   ──► Return to Dashboard
+    ├── No accounts ──► "No accounts found." ──► Return to Dashboard
     │
-    └── Accounts found ──► Display numbered list of accounts
-                           ──► Prompt: "Select account number (1/2/...): "
+    └── Accounts found ──► Display numbered list
+                           ──► Prompt: "Select account (1/2/...): "
                            [Validate selection]
                                │
                                ▼
-                           Prompt: "Enter amount to deposit (Min Rs. 500): "
+                           Prompt: "Enter amount to withdraw (Min Rs. 500): "
                            [Validate: numeric, >= 500]
                                │
                                ▼
-                           transactionDAO.depositAmount(accountNo, amount)
+                           transactionDAO.withdrawAmount(accountNo, amount)
                                │
-                               ├── UPDATE accounts SET balance = balance + ? WHERE account_no = ?
-                               └── INSERT INTO transactions (to_account, type, amount, remarks)
-                               [Both inside a single DB transaction with commit/rollback]
+                               ├── getUpdatedBalance(accountNo)
+                               │       │
+                               │   balance < amount?
+                               │       │
+                               │       └── YES ──► throw InsufficientFundsException
+                               │                        │
+                               │                        ▼
+                               │               CustomerMenu catches it
+                               │               Displays:
+                               │                 "[!] Insufficient funds."
+                               │                 "Requested: Rs. X,XXX.XX"
+                               │                 "Available: Rs. X,XXX.XX"
+                               │                        │
+                               │                        ▼
+                               │               Return to Dashboard
                                │
-                               ▼
-                           transactionDAO.getUpdatedBalance(accountNo)
-                               │
-                               ▼
-                           "✓ Deposit Successful! New Balance: Rs. X,XXX.XX"
-                               │
-                               ▼
-                           Return to Dashboard
+                               └── balance >= amount ──► Atomic:
+                                       UPDATE accounts SET balance = balance - ?
+                                       INSERT INTO transactions ('WITHDRAWAL', ...)
+                                       conn.commit()
+                                           │
+                                           ▼
+                                   getUpdatedBalance(accountNo)
+                                           │
+                                           ▼
+                                   "✓ Withdrawal Successful!"
+                                   "Amount Withdrawn : Rs. X,XXX.XX"
+                                   "Updated Balance  : Rs. X,XXX.XX"
+                                           │
+                                           ▼
+                                   Return to Dashboard
 ```
 
 ---
 
 ## ✅ Definition of Done
 
-- [ ] `Transaction` model and `TransactionDAO` classes are successfully created and structured.
-- [ ] Deposit updates the `accounts.balance` column correctly in the database.
-- [ ] Each deposit is recorded as a row in the `transactions` table with `transaction_type = 'DEPOSIT'`.
-- [ ] Both the balance update and the transaction insert succeed atomically — if one fails, the other is rolled back.
-- [ ] Minimum deposit amount of Rs. 500 is enforced with looped validation.
-- [ ] Updated balance is fetched from the database and shown to the customer after deposit.
-- [ ] All database resources (Connections, Statements, ResultSets) are safely released using `try-with-resources`.
+- [ ] `InsufficientFundsException` is a custom checked exception in the `exception` package.
+- [ ] `withdrawAmount()` throws `InsufficientFundsException` (does NOT use a plain `return false` for insufficient funds).
+- [ ] Withdrawal updates the `accounts.balance` column correctly (decrements, not increments).
+- [ ] Each withdrawal is recorded in the `transactions` table with `transaction_type = 'WITHDRAWAL'`.
+- [ ] Balance update and transaction log insert are atomic (commit/rollback).
+- [ ] `CustomerMenu.withdraw()` catches `InsufficientFundsException` and displays a clear, detailed error.
+- [ ] Minimum withdrawal amount of Rs. 500 is enforced with looped validation.
+- [ ] Updated balance is fetched from the database and shown on success.
+- [ ] All DB resources are safely released.
 
 ---
 
-## 🚫 What NOT to Implement in Stage 5
+## 🚫 What NOT to Implement in Stage 6
 
-- ❌ Withdrawal functionality (Stage 6)
 - ❌ Fund Transfer (Stage 7)
 - ❌ Transaction History display (Stage 8)
 - ❌ Admin operations (Stage 9)
+- ❌ Account freezing or status checks (the `status` column exists in DB but enforcement is a polish task)
 
 ---
 
-> ⚠️ **Do NOT start Stage 5 until Stage 4 is fully tested and confirmed working.**
+> ⚠️ **Do NOT start Stage 6 until Stage 5 is fully tested and confirmed working.**
