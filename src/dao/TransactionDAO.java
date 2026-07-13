@@ -2,11 +2,15 @@ package dao;
 
 import database.DBConnection;
 import exception.InsufficientFundsException;
+import exception.InvalidAccountException;
 
+import model.Transaction;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
+import java.util.ArrayList;
 
 /**
  * TransactionDAO - Data Access Object for Transaction-related database operations.
@@ -292,5 +296,177 @@ public class TransactionDAO {
                 System.out.println("[ERROR] Could not close connection: " + closeEx.getMessage());
             }
         }
+    }
+
+    // --------------------------------------------------
+    // Method 4: Check if an account exists
+    // --------------------------------------------------
+    /**
+     * Checks if the specified account number exists in the accounts table.
+     *
+     * @param accountNo the account number to check
+     * @return true if the account exists, false otherwise
+     */
+    public boolean accountExists(long accountNo) {
+        String sql = "SELECT 1 FROM accounts WHERE account_no = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setLong(1, accountNo);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            System.out.println("[ERROR] Error checking if account exists: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // --------------------------------------------------
+    // Method 5: Fund Transfer
+    // --------------------------------------------------
+    /**
+     * Transfers money from one account to another atomically.
+     *
+     * This method runs THREE SQL statements inside a single database transaction:
+     *   Step A: UPDATE accounts SET balance = balance - ? WHERE account_no = ? (from account)
+     *   Step B: UPDATE accounts SET balance = balance + ? WHERE account_no = ? (to account)
+     *   Step C: INSERT INTO transactions (from_account, to_account, transaction_type, amount, remarks)
+     *           VALUES (?, ?, 'TRANSFER', ?, ?)
+     *
+     * If any step fails, the transaction is rolled back and the balances remain unchanged.
+     *
+     * @param fromAccountNo the source account number
+     * @param toAccountNo   the destination account number
+     * @param amount        the amount to transfer
+     * @param remarks       custom remarks for the transfer
+     * @return true if the transfer was successful
+     * @throws InsufficientFundsException if the source account balance is less than the amount
+     * @throws InvalidAccountException     if the target account does not exist
+     */
+    public boolean transferAmount(long fromAccountNo, long toAccountNo, double amount, String remarks)
+            throws InsufficientFundsException, InvalidAccountException {
+
+        // 1. Validate destination account is not the same as source account
+        if (fromAccountNo == toAccountNo) {
+            throw new InvalidAccountException(toAccountNo, "Destination account cannot be the same as the source account.");
+        }
+
+        // 2. Pre-check: Verify source account has sufficient funds
+        double fromBalance = getUpdatedBalance(fromAccountNo);
+        if (fromBalance < amount) {
+            throw new InsufficientFundsException(amount, fromBalance);
+        }
+
+        // 3. Pre-check: Verify destination account exists
+        if (!accountExists(toAccountNo)) {
+            throw new InvalidAccountException(toAccountNo, "Destination account number " + toAccountNo + " does not exist.");
+        }
+
+        String debitSql = "UPDATE accounts SET balance = balance - ? WHERE account_no = ?";
+        String creditSql = "UPDATE accounts SET balance = balance + ? WHERE account_no = ?";
+        String insertSql = "INSERT INTO transactions (from_account, to_account, transaction_type, amount, remarks) " +
+                           "VALUES (?, ?, 'TRANSFER', ?, ?)";
+
+        Connection conn = null;
+
+        try {
+            conn = DBConnection.getConnection();
+            conn.setAutoCommit(false); // Begin transaction block
+
+            // STEP 1: Debit the source account
+            try (PreparedStatement debitStmt = conn.prepareStatement(debitSql)) {
+                debitStmt.setDouble(1, amount);
+                debitStmt.setLong(2, fromAccountNo);
+                debitStmt.executeUpdate();
+            }
+
+            // STEP 2: Credit the destination account
+            try (PreparedStatement creditStmt = conn.prepareStatement(creditSql)) {
+                creditStmt.setDouble(1, amount);
+                creditStmt.setLong(2, toAccountNo);
+                creditStmt.executeUpdate();
+            }
+
+            // STEP 3: Log the transaction
+            try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                insertStmt.setLong(1, fromAccountNo);
+                insertStmt.setLong(2, toAccountNo);
+                insertStmt.setDouble(3, amount);
+                // Default to 'Fund Transfer' if remarks are empty or null
+                insertStmt.setString(4, (remarks == null || remarks.trim().isEmpty()) ? "Fund Transfer" : remarks.trim());
+                insertStmt.executeUpdate();
+            }
+
+            // Commit transaction
+            conn.commit();
+            return true;
+
+        } catch (SQLException e) {
+            System.out.println("\n[ERROR] Fund transfer failed due to a database error.");
+            System.out.println("        Details: " + e.getMessage());
+            System.out.println("        No money has been moved.\n");
+
+            try {
+                if (conn != null) {
+                    conn.rollback();
+                }
+            } catch (SQLException rollbackEx) {
+                System.out.println("[ERROR] Rollback failed: " + rollbackEx.getMessage());
+            }
+
+            return false;
+
+        } finally {
+            try {
+                if (conn != null) {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                }
+            } catch (SQLException closeEx) {
+                System.out.println("[ERROR] Could not close connection: " + closeEx.getMessage());
+            }
+        }
+    }
+
+    // --------------------------------------------------
+    // Method 6: Get Mini Statement (Latest 5 Transactions)
+    // --------------------------------------------------
+    /**
+     * Retrieves the latest 5 transactions associated with the given account number.
+     *
+     * @param accountNo the account number to retrieve transactions for
+     * @return a List of Transaction objects sorted by transaction_time descending
+     */
+    public List<Transaction> getMiniStatement(long accountNo) {
+        List<Transaction> miniStatement = new ArrayList<>();
+        String sql = "SELECT * FROM transactions WHERE from_account = ? OR to_account = ? " +
+                     "ORDER BY transaction_time DESC LIMIT 5";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setLong(1, accountNo);
+            pstmt.setLong(2, accountNo);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    Transaction tx = new Transaction(
+                        rs.getInt("transaction_id"),
+                        rs.getLong("from_account"),
+                        rs.getLong("to_account"),
+                        rs.getString("transaction_type"),
+                        rs.getDouble("amount"),
+                        rs.getString("transaction_time"),
+                        rs.getString("remarks")
+                    );
+                    miniStatement.add(tx);
+                }
+            }
+
+        } catch (SQLException e) {
+            System.out.println("[ERROR] Could not fetch transaction history: " + e.getMessage());
+        }
+
+        return miniStatement;
     }
 }

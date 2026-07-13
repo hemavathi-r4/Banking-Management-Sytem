@@ -1,63 +1,49 @@
-# 📌 NEXT TASK — Stage 7: Fund Transfer with SQL Transaction Atomicity
+# 📌 NEXT TASK — Stage 9: Administrator Operations Module
 
-**Planned Date:** July 14, 2026 (Monday)  
-**Prerequisite:** Stage 6 must be tested and working (Withdrawal Functionality)
+**Planned Date:** July 16, 2026 (Thursday)  
+**Prerequisite:** Stage 8 must be tested and working (Mini Statement Functionality)
 
 ---
 
 ## 🎯 Goal
 
-Implement fund transfer functionality for logged-in customers. When a customer selects "4. Fund Transfer" from the Customer Dashboard, the system should:
-1. Fetch the customer's accounts and display them as options for the source account.
-2. Prompt the customer to select the source account.
-3. Prompt for the target account number (destination).
-4. Prompt for the transfer amount (minimum Rs. 100, must be positive).
-5. Prompt for custom transaction remarks (optional).
-6. Verify the following business rules:
-   - Destination account must exist in the database.
-   - Destination account must not be the same as the source account.
-   - Source account must have sufficient funds.
-7. Execute the transfer atomically as a single database transaction (decrements source, increments target, inserts transaction log).
-8. Display success confirmation showing updated balances.
+Implement the Administrator Module to allow administrative users to manage customers, accounts, and view global bank statistics. 
+When an administrator logs in with username `admin` and password `admin123` via option "3. Admin Login" in the Main Menu, they should land on the Admin Dashboard console menu:
+1. View Customers
+2. Search Customer
+3. Delete Customer
+4. Freeze Account
+5. Activate Account
+6. View Transactions
+7. Statistics
+8. Logout
 
 ---
 
 ## 📝 Tasks
 
-### Task 1 — Create `InvalidAccountException.java` in `src/exception/`
+### Task 1 — Create `AdminDAO.java` in `src/dao/`
 
-- Create a custom checked exception class extending `Exception`.
-- Fields:
-  - `private long invalidAccountNo`
-- Implement a constructor:
-  - `InvalidAccountException(long invalidAccountNo, String message)`
-- Implement getter for the field.
+Implement data access operations for administrative features:
+- `public boolean authenticateAdmin(String username, String password)`: Queries `admins` table to verify credentials.
+- `public List<Customer> getAllCustomers()`: SELECTs and returns all rows from the `customers` table.
+- `public Customer searchCustomer(String searchTerm)`: Searches for a customer by email, phone, or ID.
+- `public boolean deleteCustomer(int customerId)`: DELETEs customer by ID (ON DELETE CASCADE will handle accounts).
+- `public boolean updateAccountStatus(long accountNo, String status)`: UPDATEs the `status` column in `accounts` (e.g., to `'FROZEN'` or `'ACTIVE'`).
+- `public List<Transaction> getAllTransactions()`: SELECTs all transactions in the bank.
+- `public Map<String, Object> getBankStatistics()`: Retrieves global statistics (e.g., total customers, total bank deposits/balance, total transactions count, count of SAVINGS/CURRENT accounts).
 
-### Task 2 — Extend `TransactionDAO.java` in `src/dao/`
+### Task 2 — Create `AdminMenu.java` in `src/menu/`
 
-- Add a new method:
-  - `transferAmount(long fromAccountNo, long toAccountNo, double amount, String remarks) throws InsufficientFundsException, InvalidAccountException`
-    - **Step 1:** Fetch current balance of `fromAccountNo`. If `balance < amount`, throw `InsufficientFundsException`.
-    - **Step 2:** Check if `toAccountNo` exists in the database. If not, throw `InvalidAccountException`.
-    - **Step 3:** Perform atomic operations under `conn.setAutoCommit(false)`:
-      1. UPDATE `fromAccountNo` balance (subtract amount).
-      2. UPDATE `toAccountNo` balance (add amount).
-      3. INSERT transaction record: `INSERT INTO transactions (from_account, to_account, transaction_type, amount, remarks) VALUES (?, ?, 'TRANSFER', ?, ?)`
-    - **Step 4:** `conn.commit()` on success, `conn.rollback()` on any `SQLException`.
-    - **Step 5:** Always restore auto-commit and release resources.
+Create the presentation layer for admin operations:
+- Displays login prompt collecting admin username and password.
+- Coordinates the Admin Dashboard choice loop.
+- Displays neatly formatted outputs (e.g., a table for customers, a summary list for statistics, a table of all system transactions).
+- Prompts for account freeze/activation and calls the appropriate DAO method.
 
-### Task 3 — Update `CustomerMenu.java` in `src/menu/`
+### Task 3 — Update `Main.java`
 
-- Modify option `4` ("Fund Transfer") to call a new private `fundTransfer(customer, scanner)` method.
-- The `fundTransfer()` method must:
-  - Select source account from the list.
-  - Prompt for target account number and validate it.
-  - Prompt for amount (numeric, >= 100).
-  - Prompt for optional remarks.
-  - Call `transactionDAO.transferAmount(fromAcc, toAcc, amount, remarks)` in a `try-catch` catching:
-    - `InsufficientFundsException` -> print error details.
-    - `InvalidAccountException` -> print error details.
-  - On success, display a success banner with new source balance.
+- Import `menu.AdminMenu` and wire switch option `3` ("Admin Login") to call the admin login flow.
 
 ---
 
@@ -65,16 +51,18 @@ Implement fund transfer functionality for logged-in customers. When a customer s
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/exception/InvalidAccountException.java` | NEW | Custom exception for nonexistent or inactive accounts |
-| `src/dao/TransactionDAO.java` | MODIFY | Add `transferAmount()` logic with JDBC transaction control |
-| `src/menu/CustomerMenu.java` | MODIFY | Implement option 4 UI flow |
+| `src/dao/AdminDAO.java` | NEW | Administrative database operations |
+| `src/menu/AdminMenu.java` | NEW | Admin dashboard presentation and prompt loop |
+| `src/Main.java` | MODIFY | Wire Option 3 to `AdminMenu` login |
 
 ---
 
 ## ✅ Definition of Done
 
-- [ ] `InvalidAccountException` is implemented and used for invalid target accounts.
-- [ ] Transfer amount is validated to be positive and >= Rs. 100.
-- [ ] Transfer decrement, increment, and transaction log are executed atomically (using commit/rollback).
-- [ ] In case of any exception or database failure, no funds are moved (guaranteed transaction rollback).
-- [ ] User dashboard handles exceptions gracefully.
+- [ ] Admin login successfully checks the `admins` database table.
+- [ ] Admin can view a clean table of all customers.
+- [ ] Search works dynamically by ID, email, or phone.
+- [ ] Freeze and activate updates `accounts.status` properly (e.g. status value changes in the DB).
+- [ ] Statistics display aggregates (total balance, total accounts, total customers).
+- [ ] Delete customer deletes both customer and their accounts cascade.
+- [ ] Admin logout returns cleanly to the Main Menu.

@@ -3,8 +3,10 @@ package menu;
 import dao.AccountDAO;
 import dao.TransactionDAO;
 import exception.InsufficientFundsException;
+import exception.InvalidAccountException;
 import model.Account;
 import model.Customer;
+import model.Transaction;
 
 import java.util.List;
 import java.util.Scanner;
@@ -55,10 +57,10 @@ public class CustomerMenu {
                     withdraw(customer, scanner);
                     break;
                 case "4":
-                    System.out.println("\n>> Fund Transfer will be implemented in Stage 7.\n");
+                    fundTransfer(customer, scanner);
                     break;
                 case "5":
-                    System.out.println("\n>> Mini Statement will be implemented in Stage 8.\n");
+                    viewMiniStatement(customer, scanner);
                     break;
                 case "6":
                     System.out.println("\nLogging out... Returning to Main Menu.\n");
@@ -385,6 +387,255 @@ public class CustomerMenu {
             System.out.printf( "  Available : Rs. %,.2f%n", e.getAvailableBalance());
             System.out.println("==========================================\n");
         }
+    }
+
+    // --------------------------------------------------
+    // Stage 7: Fund Transfer
+    // --------------------------------------------------
+    /**
+     * Handles the "Fund Transfer" flow.
+     *
+     * Flow:
+     *   1. Fetch all accounts for this customer.
+     *   2a. If no accounts → tell user to open one first.
+     *   2b. If accounts exist → display numbered list → user picks source account.
+     *   3. Prompt for target account number.
+     *   4. Prompt for transfer amount (minimum Rs. 100).
+     *   5. Prompt for custom remarks (optional).
+     *   6. Call transactionDAO.transferAmount() inside a try-catch for:
+     *        - InsufficientFundsException
+     *        - InvalidAccountException
+     *   7. On success: fetch updated source account balance and display success confirmation.
+     *
+     * @param customer the logged-in Customer object
+     * @param scanner  the shared Scanner for reading console input
+     */
+    private void fundTransfer(Customer customer, Scanner scanner) {
+        System.out.println("\n------------------------------------------");
+        System.out.println("             FUND TRANSFER");
+        System.out.println("------------------------------------------");
+
+        // Step 1: Fetch customer's accounts
+        List<Account> accounts = accountDAO.getAccountsByCustomerId(customer.getCustomerId());
+
+        // Step 2a: No accounts — cannot transfer
+        if (accounts.isEmpty()) {
+            System.out.println("  You do not have any accounts to transfer from.");
+            System.out.println("  Please open an account first (Option 1).\n");
+            return;
+        }
+
+        // Step 2b: Display numbered list of available accounts
+        System.out.println("  Select the source account for the transfer:\n");
+        for (int i = 0; i < accounts.size(); i++) {
+            Account acc = accounts.get(i);
+            System.out.printf("  [%d] Account No: %d  |  Type: %s  |  Balance: Rs. %,.2f%n",
+                    i + 1, acc.getAccountNo(), acc.getAccountType(), acc.getBalance());
+        }
+        System.out.println();
+
+        // Step 3: Source Account selection with validation
+        int selectedIndex = -1;
+        while (true) {
+            System.out.print("  Enter choice (1" + (accounts.size() > 1 ? "-" + accounts.size() : "") + "): ");
+            String input = scanner.nextLine().trim();
+
+            try {
+                int choice = Integer.parseInt(input);
+                if (choice >= 1 && choice <= accounts.size()) {
+                    selectedIndex = choice - 1; // Convert to 0-based index
+                    break;
+                } else {
+                    System.out.println("  [!] Please enter a number between 1 and " + accounts.size() + ".");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("  [!] Invalid input. Please enter a number.");
+            }
+        }
+
+        Account sourceAccount = accounts.get(selectedIndex);
+        long fromAccountNo = sourceAccount.getAccountNo();
+
+        // Step 4: Prompt for target account number
+        long toAccountNo = -1;
+        while (true) {
+            System.out.print("  Enter destination account number: ");
+            String targetInput = scanner.nextLine().trim();
+
+            try {
+                toAccountNo = Long.parseLong(targetInput);
+                if (toAccountNo == fromAccountNo) {
+                    System.out.println("  [!] Destination account cannot be the same as the source account.");
+                } else if (toAccountNo <= 0) {
+                    System.out.println("  [!] Account number must be positive.");
+                } else {
+                    break; // Exit loop
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("  [!] Invalid account number. Please enter a numeric value.");
+            }
+        }
+
+        // Step 5: Transfer amount validation
+        double transferAmount = 0;
+        while (true) {
+            System.out.print("  Enter amount to transfer (Min Rs. 100): ");
+            String amtInput = scanner.nextLine().trim();
+
+            try {
+                transferAmount = Double.parseDouble(amtInput);
+
+                if (transferAmount < 100) {
+                    System.out.println("  [!] Minimum transfer amount is Rs. 100. Please try again.");
+                } else {
+                    break; // Valid amount — exit loop
+                }
+
+            } catch (NumberFormatException e) {
+                System.out.println("  [!] Invalid amount. Please enter a numeric value (e.g. 1500).");
+            }
+        }
+
+        // Step 6: Remarks prompt (optional)
+        System.out.print("  Enter remarks (optional): ");
+        String remarks = scanner.nextLine().trim();
+
+        // Step 7: Execute the transfer inside try-catch for custom exceptions
+        try {
+            boolean success = transactionDAO.transferAmount(fromAccountNo, toAccountNo, transferAmount, remarks);
+
+            if (success) {
+                // Fetch the refreshed balance of the source account to confirm
+                double newBalance = transactionDAO.getUpdatedBalance(fromAccountNo);
+
+                System.out.println("\n==========================================");
+                System.out.println("  ✓ Fund Transfer Successful!");
+                System.out.println("==========================================");
+                System.out.printf( "  Amount Transferred : Rs. %,.2f%n", transferAmount);
+                System.out.println("  From Account       : " + fromAccountNo);
+                System.out.println("  To Account         : " + toAccountNo);
+                if (newBalance >= 0) {
+                    System.out.printf("  Updated Balance    : Rs. %,.2f%n", newBalance);
+                }
+                System.out.println("==========================================\n");
+            }
+        } catch (InsufficientFundsException e) {
+            System.out.println("\n==========================================");
+            System.out.println("  [!] Transfer Failed: Insufficient funds.");
+            System.out.println("==========================================");
+            System.out.printf( "  Requested : Rs. %,.2f%n", e.getAmountRequested());
+            System.out.printf( "  Available : Rs. %,.2f%n", e.getAvailableBalance());
+            System.out.println("==========================================\n");
+        } catch (InvalidAccountException e) {
+            System.out.println("\n==========================================");
+            System.out.println("  [!] Transfer Failed: Invalid account details.");
+            System.out.println("==========================================");
+            System.out.println("  Reason    : " + e.getMessage());
+            System.out.println("==========================================\n");
+        }
+    }
+
+    // --------------------------------------------------
+    // Stage 8: Mini Statement
+    // --------------------------------------------------
+    /**
+     * Handles the "Mini Statement" flow.
+     *
+     * Flow:
+     *   1. Fetch all accounts for this customer.
+     *   2a. If no accounts → tell user to open one first.
+     *   2b. If accounts exist → display numbered list → user picks account.
+     *   3. Call transactionDAO.getMiniStatement() to fetch the latest 5 transactions.
+     *   4. Display transactions in a formatted table on the console.
+     *
+     * @param customer the logged-in Customer object
+     * @param scanner  the shared Scanner for reading console input
+     */
+    private void viewMiniStatement(Customer customer, Scanner scanner) {
+        System.out.println("\n------------------------------------------");
+        System.out.println("             MINI STATEMENT");
+        System.out.println("------------------------------------------");
+
+        // Step 1: Fetch customer's accounts
+        List<Account> accounts = accountDAO.getAccountsByCustomerId(customer.getCustomerId());
+
+        // Step 2a: No accounts — cannot show statement
+        if (accounts.isEmpty()) {
+            System.out.println("  You do not have any accounts to view statements for.");
+            System.out.println("  Please open an account first (Option 1).\n");
+            return;
+        }
+
+        // Step 2b: Display numbered list of available accounts
+        System.out.println("  Select the account to view statement for:\n");
+        for (int i = 0; i < accounts.size(); i++) {
+            Account acc = accounts.get(i);
+            System.out.printf("  [%d] Account No: %d  |  Type: %s  |  Balance: Rs. %,.2f%n",
+                    i + 1, acc.getAccountNo(), acc.getAccountType(), acc.getBalance());
+        }
+        System.out.println();
+
+        // Step 3: Account selection with validation
+        int selectedIndex = -1;
+        while (true) {
+            System.out.print("  Enter choice (1" + (accounts.size() > 1 ? "-" + accounts.size() : "") + "): ");
+            String input = scanner.nextLine().trim();
+
+            try {
+                int choice = Integer.parseInt(input);
+                if (choice >= 1 && choice <= accounts.size()) {
+                    selectedIndex = choice - 1; // Convert to 0-based index
+                    break;
+                } else {
+                    System.out.println("  [!] Please enter a number between 1 and " + accounts.size() + ".");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("  [!] Invalid input. Please enter a number.");
+            }
+        }
+
+        Account selectedAccount = accounts.get(selectedIndex);
+        long accountNo = selectedAccount.getAccountNo();
+
+        // Step 4: Fetch statement from DAO
+        List<Transaction> statement = transactionDAO.getMiniStatement(accountNo);
+
+        if (statement.isEmpty()) {
+            System.out.println("\n  No transactions recorded for this account.\n");
+            return;
+        }
+
+        // Step 5: Format and display the statement
+        System.out.println("\n====================================================================================================");
+        System.out.printf("  LATEST TRANSACTIONS FOR ACCOUNT: %d%n", accountNo);
+        System.out.println("====================================================================================================");
+        System.out.printf("  %-6s | %-19s | %-12s | %-14s | %-30s%n",
+                "TX ID", "Date & Time", "Type", "Amount", "Remarks");
+        System.out.println("  --------------------------------------------------------------------------------------------------");
+
+        for (Transaction tx : statement) {
+            // Determine transaction details depending on deposit/withdrawal/transfer
+            String type = tx.getTransactionType();
+            String amountStr = String.format("Rs. %,.2f", tx.getAmount());
+            
+            // Format a descriptive remark if from/to accounts are involved
+            String description = tx.getRemarks();
+            if (type.equals("TRANSFER")) {
+                if (tx.getFromAccount() == accountNo) {
+                    description = String.format("Transfer to Acc: %d (%s)", tx.getToAccount(), tx.getRemarks());
+                } else if (tx.getToAccount() == accountNo) {
+                    description = String.format("Transfer from Acc: %d (%s)", tx.getFromAccount(), tx.getRemarks());
+                }
+            }
+
+            System.out.printf("  %-6d | %-19s | %-12s | %-14s | %-30s%n",
+                    tx.getTransactionId(),
+                    tx.getTransactionTime(),
+                    type,
+                    amountStr,
+                    description);
+        }
+        System.out.println("====================================================================================================\n");
     }
 
     // --------------------------------------------------

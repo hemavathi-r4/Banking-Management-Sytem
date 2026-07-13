@@ -109,6 +109,31 @@ Stage 6 implemented the Withdrawal feature, allowing logged-in customers to with
 
 ---
 
+### 📅 Stage 7 — Fund Transfer with SQL Transaction Atomicity (July 13, 2026)
+Stage 7 implemented the Fund Transfer feature, allowing logged-in customers to transfer money from one of their accounts to any other valid account in the bank. This stage utilized custom checked exceptions (`InvalidAccountException`, `InsufficientFundsException`), input validation (checking source vs. destination accounts, checking positive amounts >= Rs. 100), and atomic database operations spanning multiple SQL updates.
+
+**Key Achievements:**
+- Created `InvalidAccountException.java` — a custom checked exception thrown when a target transfer account is invalid or does not exist.
+- Extended `TransactionDAO.java` with two methods:
+  - `accountExists(long accountNo)`: Queries the database to check if an account number exists.
+  - `transferAmount(long fromAccountNo, long toAccountNo, double amount, String remarks) throws InsufficientFundsException, InvalidAccountException`: Performs balance pre-checks and target existence checks, disables JDBC auto-commit, performs two balance UPDATEs (debiting from-account, crediting to-account), logs the transfer transaction, and commits changes atomically (rolls back on any error).
+- `src/menu/CustomerMenu.java` — MODIFIED: Option 4 now fully implemented.
+
+---
+
+### 📅 Stage 8 — Transaction History & Mini Statement Queries (July 13, 2026)
+Stage 8 implemented the Transaction History / Mini Statement feature. It allows logged-in customers to view the latest 5 transactions (debits, credits, or transfers) for any of their accounts. This stage features a formatted tabular output with column alignments using print formats.
+
+**Key Achievements:**
+- Extended `TransactionDAO.java` with a `getMiniStatement(long accountNo)` method. It runs a SELECT query with a `LIMIT 5` clause ordering by `transaction_time` descending, and constructs a list of `Transaction` records.
+- Updated `CustomerMenu.java` — wired Option 5 ("Mini Statement") to a new `viewMiniStatement()` method. It lets the customer pick which account to view, fetches the transactions, and displays them in a formatted table on the console with custom descriptions (identifying whether a transfer was incoming or outgoing relative to the selected account).
+
+**Files Created/Modified in Stage 8:**
+- `src/dao/TransactionDAO.java` — MODIFIED: Added `getMiniStatement()`.
+- `src/menu/CustomerMenu.java` — MODIFIED: Option 5 now fully implemented.
+
+---
+
 ## 📂 Current Folder Structure
 ```
 BMS/
@@ -120,14 +145,14 @@ BMS/
 │   ├── dao/
 │   │   ├── CustomerDAO.java       ← Stage 2 & 3 Data Access Object
 │   │   ├── AccountDAO.java        ← Stage 4 Data Access Object
-│   │   └── TransactionDAO.java    ← Stage 5 Data Access Object
+│   │   └── TransactionDAO.java    ← Stage 5 & 6 & 7 & 8 Data Access Object
 │   ├── database/
 │   │   └── DBConnection.java      ← Stage 1 JDBC Connection Utility
-│   ├── exception/                 ← Contains InsufficientFundsException.java (Stage 6)
+│   ├── exception/                 ← Contains InsufficientFundsException.java (Stage 6), InvalidAccountException.java (Stage 7)
 │   ├── menu/
 │   │   ├── RegistrationMenu.java  ← Stage 2 Registration Console UI
 │   │   ├── LoginMenu.java         ← Stage 3 Login Console UI
-│   │   └── CustomerMenu.java      ← Stage 3 (base) + Stage 4 + Stage 5 + Stage 6
+│   │   └── CustomerMenu.java      ← Stage 3 (base) + Stage 4 + Stage 5 + Stage 6 + Stage 7 + Stage 8
 │   └── Main.java                  ← Entry Point (Wired to Registration & Login)
 ├── sql/
 │   └── bank_management.sql        ← Stage 1 DB schema SQL script
@@ -413,6 +438,62 @@ A custom checked exception subclass of `Exception` that contains additional cont
 
 ---
 
+### Stage 7 Components
+
+#### 1. Custom Checked Exception: `src/exception/InvalidAccountException.java` — NEW
+A custom checked exception subclass of `Exception` thrown during transfers if target accounts are invalid or do not exist.
+- **Fields:**
+  - `private final long invalidAccountNo` — The invalid account number that triggered the exception.
+- **Constructor:** Takes the invalid account number and a custom error message.
+- **Getter:** `getInvalidAccountNo()` allows caller access.
+
+#### 2. DAO Extension: `src/dao/TransactionDAO.java` — MODIFIED
+- **Added Methods:**
+  - `public boolean accountExists(long accountNo)`: Checks if a given account number exists in the database.
+  - `public boolean transferAmount(long fromAccountNo, long toAccountNo, double amount, String remarks) throws InsufficientFundsException, InvalidAccountException`:
+    1. Checks if the destination account number matches the source. If so, throws `InvalidAccountException`.
+    2. Checks the source account's balance. If insufficient, throws `InsufficientFundsException`.
+    3. Checks if the destination account exists using `accountExists()`. If not, throws `InvalidAccountException`.
+    4. Executes three database statements inside a database transaction block:
+       - UPDATE (debits source account: `SET balance = balance - ?`)
+       - UPDATE (credits target account: `SET balance = balance + ?`)
+       - INSERT (logs the transfer transaction details)
+    5. Commits if all are successful, rolls back on `SQLException`, and ensures connection cleanup.
+
+#### 3. Customer Dashboard Update: `src/menu/CustomerMenu.java` — MODIFIED (Stage 7)
+- **Modified choice "4":** Replaced option 4 stub print with a call to `fundTransfer(customer, scanner)`.
+- **New private method: `fundTransfer(Customer customer, Scanner scanner)`**
+  - Fetches customer accounts. Displays list.
+  - Prompts and validates choice for source account.
+  - Prompts for destination account. Ensures it is numeric, positive, and not equal to the source account.
+  - Prompts for transfer amount. Validates to ensure numeric value >= Rs. 100.
+  - Prompts for optional remarks.
+  - Invokes `transactionDAO.transferAmount(fromAccountNo, toAccountNo, transferAmount, remarks)` inside a `try-catch` catching `InsufficientFundsException` and `InvalidAccountException`.
+  - On success: Fetches new source balance and prints a confirmation banner.
+
+---
+
+### Stage 8 Components
+
+#### 1. DAO Extension: `src/dao/TransactionDAO.java` — MODIFIED
+- **Added Method:** `public List<Transaction> getMiniStatement(long accountNo)`
+- **Logic:**
+  1. Opens a database connection.
+  2. Runs query: `SELECT * FROM transactions WHERE from_account = ? OR to_account = ? ORDER BY transaction_time DESC LIMIT 5`.
+  3. Binds the selected account number to both parameters (matching it as either sender or receiver).
+  4. Maps each row in the result set to a `Transaction` model using the full loading constructor.
+  5. Returns the collected transactions in a list. Returns an empty list on SQLException.
+
+#### 2. Customer Dashboard Update: `src/menu/CustomerMenu.java` — MODIFIED (Stage 8)
+- **Modified choice "5":** Replaced choice 5 stub print with a call to `viewMiniStatement(customer, scanner)`.
+- **New private method: `viewMiniStatement(Customer customer, Scanner scanner)`**
+  - Displays customer accounts and prompts to select one.
+  - Invokes `transactionDAO.getMiniStatement(accountNo)`.
+  - If the transaction list is empty, displays a clean notification: `"No transactions recorded for this account."`
+  - Otherwise, loops through the list and outputs a neatly aligned table on the console using `printf`. It formats transaction IDs, timestamps, transaction types, amounts, and displays customized descriptions depending on whether the account was the sender or recipient in a transfer transaction.
+
+---
+
 ### Stage 3: Customer Login Process
 
 ```
@@ -633,7 +714,114 @@ accountDAO.getAccountsByCustomerId(customer.getCustomerId())
          "Updated Balance  : Rs. X,XXX.XX"
                   │
                   ▼
-         Return to Dashboard
+          Return to Dashboard
+```
+
+### Stage 7: Fund Transfer Flow
+
+```
+Customer Dashboard → User selects "4. Fund Transfer"
+        │
+        ▼
+CustomerMenu.fundTransfer(customer, scanner)
+        │
+        ▼
+accountDAO.getAccountsByCustomerId(customer.getCustomerId())
+        │
+        ├──► No accounts
+        │         │
+        │         ▼
+        │    "You do not have any accounts to transfer from."
+        │    Return to Dashboard
+        │
+        └──► Accounts found
+                  │
+                  ▼
+         Display numbered list of source accounts
+         Prompt: "Enter choice (1-N): " [Loop validation]
+                  │
+                  ▼
+         Prompt: "Enter destination account number: "
+         [Validate: numeric, positive, != source account]
+                  │
+                  ▼
+         Prompt: "Enter amount to transfer (Min Rs. 100): "
+         [Loop validation: numeric, >= 100]
+                  │
+                  ▼
+         Prompt: "Enter remarks (optional): "
+                  │
+                  ▼
+         transactionDAO.transferAmount(fromAccount, toAccount, amount, remarks)
+            │
+            ├── Check fromAccount balance
+            │     └── If insufficient ──► Throw InsufficientFundsException ──► Catcher UI prints details
+            │
+            ├── Check if toAccount exists
+            │     └── If nonexistent  ──► Throw InvalidAccountException  ──► Catcher UI prints details
+            │
+            ├── conn.setAutoCommit(false)
+            ├── UPDATE accounts SET balance = balance - amount WHERE account_no = fromAccount
+            ├── UPDATE accounts SET balance = balance + amount WHERE account_no = toAccount
+            ├── INSERT INTO transactions (from_account, to_account, 'TRANSFER', amount, remarks)
+            └── conn.commit()   [← only if all updates succeed]
+                conn.rollback() [← if any SQLException occurs]
+                  │
+            Returns true/false
+                  │
+                  ▼
+         transactionDAO.getUpdatedBalance(fromAccount)
+                  │
+                  ▼
+         "✓ Fund Transfer Successful!"
+         "Amount Transferred : Rs. X,XXX.XX"
+         "Updated Balance    : Rs. X,XXX.XX"
+                  │
+                  ▼
+          Return to Dashboard
+```
+
+### Stage 8: Mini Statement Flow
+
+```
+Customer Dashboard → User selects "5. Mini Statement"
+        │
+        ▼
+CustomerMenu.viewMiniStatement(customer, scanner)
+        │
+        ▼
+accountDAO.getAccountsByCustomerId(customer.getCustomerId())
+        │
+        ├──► No accounts
+        │         │
+        │         ▼
+        │    "You do not have any accounts to view statements for."
+        │    Return to Dashboard
+        │
+        └──► Accounts found
+                  │
+                  ▼
+         Display numbered list of accounts
+         Prompt: "Enter choice (1-N): " [Loop validation]
+                  │
+                  ▼
+         transactionDAO.getMiniStatement(accountNo)
+            │
+            ├── SELECT * FROM transactions WHERE from_account = ? OR to_account = ? ORDER BY transaction_time DESC LIMIT 5
+            └── Return List<Transaction>
+                  │
+                  ├──► List is empty ──► "No transactions recorded for this account." ──► Return to Dashboard
+                  │
+                  └──► List has items
+                            │
+                            ▼
+                       Print formatted table headers
+                       Loop over each Transaction:
+                         - Calculate custom remarks (e.g. identify sender vs receiver in transfer)
+                         - Print formatted row (TX ID, Timestamp, Type, Amount, Description) using printf
+                            │
+                            ▼
+                       Return to Dashboard
 ```
 
 ---
@@ -659,26 +847,33 @@ The project enforces structured, enterprise-ready software patterns:
    - `conn.rollback()` in a `catch` block ensures partial DB changes are undone on failure.
    - `conn.setAutoCommit(true)` and `conn.close()` always called in a `finally` block for guaranteed cleanup.
    - Catching `SQLException` locally prevents application termination on database communication failures.
-7. **Custom Exception Handling / Domain-Driven Exceptions:** Rather than returning generic success/failure indicators (like `false` or `0`), the DAO throws a specific checked exception (`InsufficientFundsException`) conveying the failure type and metadata (requested amount vs. available balance). This enables compiling-time enforcement of error handling and cleaner separation of presentation from logic.
-8. **Checked vs. Unchecked Exception Choice:** Making `InsufficientFundsException` a checked exception forces developers/callers to explicitly write `try-catch` blocks, preventing silent failures or application crashes during financial operations.
+7. **Custom Exception Handling / Domain-Driven Exceptions:** Rather than returning generic success/failure indicators (like `false` or `0`), the DAO throws specific checked exceptions (`InsufficientFundsException`, `InvalidAccountException`) conveying the failure type and metadata. This enables compile-time enforcement of error handling and cleaner separation of presentation from logic.
+8. **Checked vs. Unchecked Exception Choice:** Making exceptions checked forces developers/callers to explicitly write `try-catch` blocks, preventing silent failures or application crashes during financial operations.
 
 ---
 
 ## ⚙️ Setup & Verification Steps
 
-To run and verify the system up to Stage 6:
+To run and verify the system up to Stage 8:
 1. **Initialize Database:** Ensure `sql/bank_management.sql` has been executed in your MySQL database instance.
 2. **Update Connection Parameters:** Open `src/database/DBConnection.java` and replace values with your database credentials.
 3. **Add Driver Library:** Ensure `mysql-connector-j-8.0.33.jar` is inside the `lib/` directory and added to your project classpath.
 4. **Execute Application:** Run `Main.java`.
-5. **Verify Registration & Login (Prerequisite):** Register a customer and log in.
-6. **Verify Account Creation (Prerequisite):** Open a SAVINGS or CURRENT account via Option 1.
-7. **Verify Deposit Flow (Prerequisite):** Deposit funds to establish an initial balance.
-8. **Verify Withdrawal Validation:** Select Option 3. Try to withdraw an invalid amount (e.g., `450` or non-numeric string). Verify rejection.
-9. **Verify Insufficient Funds Handling:** Enter a withdrawal amount exceeding the current balance. Confirm that the application catches `InsufficientFundsException` and prints the requested vs. available amounts in a formatted table.
-10. **Verify Successful Withdrawal:** Enter a valid withdrawal amount (>= `500` and <= available balance). Verify the success banner appears, the balance is correctly decremented, and the transaction is saved in the database.
-11. **Verify DB Consistency:** Check the `accounts` table in MySQL and confirm the balance decreased. Check the `transactions` table and confirm a new `WITHDRAWAL` row was inserted.
-12. **Verify Rollback (Optional):** Temporarily break the INSERT SQL in `TransactionDAO.withdrawAmount()` and confirm the balance is NOT changed (rolled back) when the log insert fails.
+5. **Verify Transactions (Prerequisite):** Perform at least one deposit, one withdrawal, and one transfer to populate the transactions log.
+6. **Verify Statement Selection:**
+   - Log in as a customer, select Option 5 ("Mini Statement").
+   - Select an account from the displayed list.
+7. **Verify Table Formatting:**
+   - Confirm that the console prints a neatly aligned table with headers: `TX ID | Date & Time | Type | Amount | Remarks`.
+   - Confirm that amounts are prefixed with `Rs.` and formatted to 2 decimal places.
+8. **Verify Custom Remarks Logic:**
+   - Verify that deposits display "Self deposit" or custom remarks.
+   - Verify that withdrawals display "Self withdrawal" or custom remarks.
+   - Verify that transfer transactions show "Transfer to Acc: X" if the selected account was the sender, or "Transfer from Acc: Y" if the selected account was the recipient.
+9. **Verify Query Limit:**
+   - Perform more than 5 transactions on the same account. Select Option 5 again and verify that only the 5 most recent transactions are displayed in descending chronological order.
+10. **Verify Empty State:**
+    - Open a brand-new account (with no transactions other than opening deposit if it logs, or construct one). Select Option 5 and confirm the display shows `"No transactions recorded for this account."`
 
 ---
 
@@ -692,8 +887,8 @@ To run and verify the system up to Stage 6:
 | **4** | Account Creation & Balance Checking (Account model, AccountDAO, View Account Details flow) | ✅ Complete | July 10, 2026 |
 | **5** | Deposit Functionality (Transaction model, TransactionDAO with atomic commit/rollback, Deposit UI) | ✅ Complete | July 10, 2026 |
 | **6** | Withdrawal with Custom Exception Handling | ✅ Complete | July 13, 2026 |
-| **7** | Fund Transfer with SQL Transaction Atomicity | ⬜ Not Started | — |
-| **8** | Transaction History & Mini Statement Queries | ⬜ Not Started | — |
+| **7** | Fund Transfer with SQL Transaction Atomicity | ✅ Complete | July 13, 2026 |
+| **8** | Transaction History & Mini Statement Queries | ✅ Complete | July 13, 2026 |
 | **9** | Administrator Operations Module | ⬜ Not Started | — |
 | **10** | System Refactoring, Polish, and Detailed README documentation | ⬜ Not Started | — |
 
@@ -746,5 +941,26 @@ feat: implement withdrawal with custom checked exception (Stage 6)
 - Update CustomerMenu.java: implement withdraw() method handling Option 3
 - withdraw() catches InsufficientFundsException and displays requested/available details formatted
 - Enforce minimum Rs. 500 withdrawal rule using input validation loops
+```
+
+### Stage 7
+```
+feat: implement fund transfer with atomic SQL transactions (Stage 7)
+
+- Create custom checked InvalidAccountException.java to handle nonexistent or self-destination accounts
+- Extend TransactionDAO.java: add accountExists() and transferAmount() methods
+- transferAmount() updates balances of both source and destination, and logs a TRANSFER record under a single database transaction block (commit/rollback)
+- Update CustomerMenu.java: implement fundTransfer() method for option 4
+- fundTransfer() validates source choice, destination account, transfer amount (min Rs. 100), and handles exceptions
+```
+
+### Stage 8
+```
+feat: implement mini statement and transaction history (Stage 8)
+
+- Extend TransactionDAO.java: implement getMiniStatement() fetching latest 5 transactions
+- Update CustomerMenu.java: wire Option 5 switch case to viewMiniStatement()
+- viewMiniStatement() prompts account selection, queries DB, and displays a neatly formatted text table
+- Format transaction type, timestamp, amount with Rs. symbol, and display customized sender/recipient remarks
 ```
 ```
