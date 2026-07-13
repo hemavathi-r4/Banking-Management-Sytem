@@ -1,6 +1,7 @@
 import database.DBConnection;
 import menu.LoginMenu;
 import menu.RegistrationMenu;
+import menu.AdminMenu;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -51,6 +52,7 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
         RegistrationMenu registrationMenu = new RegistrationMenu();  // Stage 2: Registration menu
         LoginMenu loginMenu = new LoginMenu();                        // Stage 3: Login menu
+        AdminMenu adminMenu = new AdminMenu();                        // Stage 9: Admin menu
         boolean running = true;
 
         while (running) {
@@ -66,7 +68,7 @@ public class Main {
                     loginMenu.showLoginForm(scanner);  // Stage 3: Customer Login
                     break;
                 case "3":
-                    System.out.println("\n>> Admin Login will be implemented in Stage 10.\n");
+                    adminMenu.showLoginForm(scanner);
                     break;
                 case "4":
                     System.out.println("\nThank you for using the Banking Management System. Goodbye!");

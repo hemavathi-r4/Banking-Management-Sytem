@@ -1,49 +1,60 @@
-# 📌 NEXT TASK — Stage 9: Administrator Operations Module
+# 📌 NEXT TASK — Stage 10: System Refactoring, Polish, and Detailed README Documentation
 
-**Planned Date:** July 16, 2026 (Thursday)  
-**Prerequisite:** Stage 8 must be tested and working (Mini Statement Functionality)
+**Planned Date:** July 16, 2026 (Wednesday)  
+**Prerequisite:** Stage 9 must be tested and working (Administrator Operations Module)
 
 ---
 
 ## 🎯 Goal
 
-Implement the Administrator Module to allow administrative users to manage customers, accounts, and view global bank statistics. 
-When an administrator logs in with username `admin` and password `admin123` via option "3. Admin Login" in the Main Menu, they should land on the Admin Dashboard console menu:
-1. View Customers
-2. Search Customer
-3. Delete Customer
-4. Freeze Account
-5. Activate Account
-6. View Transactions
-7. Statistics
-8. Logout
+Perform a final polish pass over the entire Banking Management System. Refactor code for consistency, add input validation guards across all modules (e.g., block transactions on FROZEN accounts), and create a comprehensive `README.md` file suitable for GitHub.
 
 ---
 
 ## 📝 Tasks
 
-### Task 1 — Create `AdminDAO.java` in `src/dao/`
+### Task 1 — Account Status Enforcement
 
-Implement data access operations for administrative features:
-- `public boolean authenticateAdmin(String username, String password)`: Queries `admins` table to verify credentials.
-- `public List<Customer> getAllCustomers()`: SELECTs and returns all rows from the `customers` table.
-- `public Customer searchCustomer(String searchTerm)`: Searches for a customer by email, phone, or ID.
-- `public boolean deleteCustomer(int customerId)`: DELETEs customer by ID (ON DELETE CASCADE will handle accounts).
-- `public boolean updateAccountStatus(long accountNo, String status)`: UPDATEs the `status` column in `accounts` (e.g., to `'FROZEN'` or `'ACTIVE'`).
-- `public List<Transaction> getAllTransactions()`: SELECTs all transactions in the bank.
-- `public Map<String, Object> getBankStatistics()`: Retrieves global statistics (e.g., total customers, total bank deposits/balance, total transactions count, count of SAVINGS/CURRENT accounts).
+Currently, frozen accounts can still perform deposits, withdrawals, and transfers. Add status checks:
+- In `TransactionDAO.depositAmount()`: Before processing, query the account status. If `FROZEN` or `CLOSED`, reject the operation with a clear message.
+- In `TransactionDAO.withdrawAmount()`: Same check before withdrawal.
+- In `TransactionDAO.transferAmount()`: Check both source and destination account statuses.
+- Display user-friendly error messages in `CustomerMenu.java` when operations are blocked.
 
-### Task 2 — Create `AdminMenu.java` in `src/menu/`
+### Task 2 — Input Validation Hardening
 
-Create the presentation layer for admin operations:
-- Displays login prompt collecting admin username and password.
-- Coordinates the Admin Dashboard choice loop.
-- Displays neatly formatted outputs (e.g., a table for customers, a summary list for statistics, a table of all system transactions).
-- Prompts for account freeze/activation and calls the appropriate DAO method.
+Review and strengthen input validation across all menus:
+- Ensure email format validation during registration (basic `@` and `.` check).
+- Ensure phone number validation (digits only, length check).
+- Trim and sanitize all user inputs consistently.
+- Handle edge cases like empty strings, extremely long inputs, and special characters.
 
-### Task 3 — Update `Main.java`
+### Task 3 — Code Consistency & Cleanup
 
-- Import `menu.AdminMenu` and wire switch option `3` ("Admin Login") to call the admin login flow.
+- Ensure all DAO methods follow the same resource management pattern (try-with-resources or manual finally blocks).
+- Verify all `finally` blocks restore `autoCommit` and close connections.
+- Add missing Javadoc comments to any undocumented methods.
+- Remove any dead code or unused imports.
+
+### Task 4 — Create `README.md`
+
+Write a professional, GitHub-ready `README.md` at the project root containing:
+- Project title and description
+- Features list (all 9 stages summarized)
+- Technology stack
+- Prerequisites (JDK, MySQL, JDBC driver)
+- Setup instructions (database, configuration, compilation, running)
+- Project structure diagram
+- Screenshots / sample console output
+- OOP concepts demonstrated
+- Future enhancements section
+- License and author information
+
+### Task 5 — Final Compilation & Smoke Test
+
+- Compile all files with `javac`.
+- Run through the complete application flow (register → login → all 5 customer options → admin login → all 7 admin options).
+- Verify no runtime errors or unexpected behavior.
 
 ---
 
@@ -51,18 +62,18 @@ Create the presentation layer for admin operations:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/dao/AdminDAO.java` | NEW | Administrative database operations |
-| `src/menu/AdminMenu.java` | NEW | Admin dashboard presentation and prompt loop |
-| `src/Main.java` | MODIFY | Wire Option 3 to `AdminMenu` login |
+| `src/dao/TransactionDAO.java` | MODIFY | Add account status checks before transactions |
+| `src/menu/CustomerMenu.java` | MODIFY | Handle frozen account error messages |
+| `src/menu/RegistrationMenu.java` | MODIFY | Strengthen email/phone validation |
+| `README.md` | NEW | Comprehensive GitHub documentation |
 
 ---
 
 ## ✅ Definition of Done
 
-- [ ] Admin login successfully checks the `admins` database table.
-- [ ] Admin can view a clean table of all customers.
-- [ ] Search works dynamically by ID, email, or phone.
-- [ ] Freeze and activate updates `accounts.status` properly (e.g. status value changes in the DB).
-- [ ] Statistics display aggregates (total balance, total accounts, total customers).
-- [ ] Delete customer deletes both customer and their accounts cascade.
-- [ ] Admin logout returns cleanly to the Main Menu.
+- [ ] Frozen accounts cannot perform deposit, withdrawal, or transfer operations.
+- [ ] Email and phone validation added during registration.
+- [ ] All DAO methods have consistent resource management patterns.
+- [ ] All public methods have Javadoc comments.
+- [ ] `README.md` is complete and professional.
+- [ ] Full application compiles and runs end-to-end without errors.

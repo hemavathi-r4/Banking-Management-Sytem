@@ -134,26 +134,51 @@ Stage 8 implemented the Transaction History / Mini Statement feature. It allows 
 
 ---
 
+### 📅 Stage 9 — Administrator Operations Module (July 13, 2026)
+Stage 9 implemented the full Administrator Module, including admin login authentication, a dedicated Admin Dashboard with 8 options, and introduced OOP Inheritance by creating a `User` base class that both `Customer` and `Admin` extend.
+
+**Key Achievements:**
+- Created `User.java` — a base model superclass encapsulating common fields (`id`, `password`) shared between customers and administrators. This demonstrates the **OOP Inheritance** pattern.
+- Created `Admin.java` — a model class extending `User`, adding the `username` field specific to administrators.
+- Refactored `Customer.java` to extend `User` instead of declaring its own `customerId` and `password` fields. The `getCustomerId()` / `setCustomerId()` methods now delegate to inherited `getId()` / `setId()`, maintaining full backward compatibility with all existing code.
+- Created `AdminDAO.java` — a new Data Access Object with 7 methods: `authenticateAdmin()`, `getAllCustomers()`, `searchCustomers()`, `deleteCustomer()`, `updateAccountStatus()`, `accountExists()`, `getAllTransactions()`, and `getBankStatistics()`.
+- Created `AdminMenu.java` — the Admin Dashboard console UI with login prompt, dashboard loop, and 8 interactive options (View Customers, Search Customer, Delete Customer, Freeze Account, Activate Account, View Transactions, Statistics, Logout).
+- Updated `Main.java` — wired Option 3 ("Admin Login") to `AdminMenu.showLoginForm(scanner)` replacing the stub message.
+
+**Files Created/Modified in Stage 9:**
+- `src/model/User.java` — NEW: Base superclass for Customer and Admin.
+- `src/model/Admin.java` — NEW: Admin model extending User.
+- `src/model/Customer.java` — MODIFIED: Now extends User (inheritance refactor).
+- `src/dao/AdminDAO.java` — NEW: Admin data access operations.
+- `src/menu/AdminMenu.java` — NEW: Admin dashboard presentation layer.
+- `src/Main.java` — MODIFIED: Option 3 wired to AdminMenu.
+
+---
+
 ## 📂 Current Folder Structure
 ```
 BMS/
 ├── src/
 │   ├── model/
-│   │   ├── Customer.java          ← Stage 2 Model (POJO)
+│   │   ├── User.java              ← Stage 9 Base Model (Inheritance superclass)
+│   │   ├── Customer.java          ← Stage 2 Model (extends User — refactored in Stage 9)
+│   │   ├── Admin.java             ← Stage 9 Model (extends User)
 │   │   ├── Account.java           ← Stage 4 Model (POJO)
 │   │   └── Transaction.java       ← Stage 5 Model (POJO)
 │   ├── dao/
 │   │   ├── CustomerDAO.java       ← Stage 2 & 3 Data Access Object
 │   │   ├── AccountDAO.java        ← Stage 4 Data Access Object
-│   │   └── TransactionDAO.java    ← Stage 5 & 6 & 7 & 8 Data Access Object
+│   │   ├── TransactionDAO.java    ← Stage 5 & 6 & 7 & 8 Data Access Object
+│   │   └── AdminDAO.java          ← Stage 9 Data Access Object
 │   ├── database/
 │   │   └── DBConnection.java      ← Stage 1 JDBC Connection Utility
 │   ├── exception/                 ← Contains InsufficientFundsException.java (Stage 6), InvalidAccountException.java (Stage 7)
 │   ├── menu/
 │   │   ├── RegistrationMenu.java  ← Stage 2 Registration Console UI
 │   │   ├── LoginMenu.java         ← Stage 3 Login Console UI
-│   │   └── CustomerMenu.java      ← Stage 3 (base) + Stage 4 + Stage 5 + Stage 6 + Stage 7 + Stage 8
-│   └── Main.java                  ← Entry Point (Wired to Registration & Login)
+│   │   ├── CustomerMenu.java      ← Stage 3 (base) + Stage 4 + Stage 5 + Stage 6 + Stage 7 + Stage 8
+│   │   └── AdminMenu.java         ← Stage 9 Admin Dashboard Console UI
+│   └── Main.java                  ← Entry Point (Wired to Registration, Login & Admin)
 ├── sql/
 │   └── bank_management.sql        ← Stage 1 DB schema SQL script
 ├── lib/                           ← External JAR libraries (contains mysql-connector-j-8.0.33.jar)
@@ -494,6 +519,56 @@ A custom checked exception subclass of `Exception` thrown during transfers if ta
 
 ---
 
+### Stage 9 Components
+
+#### 1. Base Model: `src/model/User.java` — NEW
+A superclass extracting fields common to all system users (Customer and Admin):
+- **Fields:** `protected int id`, `protected String password`.
+- **Constructors:** No-arg and full (`id`, `password`).
+- **Getters/Setters:** `getId()`, `setId()`, `getPassword()`, `setPassword()`.
+- **OOP Pattern:** Demonstrates **Inheritance** — common fields live in the superclass to avoid code duplication.
+
+#### 2. Admin Model: `src/model/Admin.java` — NEW
+A model class extending `User` to represent administrator users:
+- **Fields:** `private String username` (admin-specific).
+- **Constructor:** `Admin(int adminId, String username, String password)` delegates to `super(adminId, password)`.
+- **Getter/Setter:** `getUsername()`, `setUsername()`.
+- **toString():** Prints `adminId` and `username` (excludes password for security).
+
+#### 3. Customer Model Refactor: `src/model/Customer.java` — MODIFIED (Stage 9)
+- `Customer` now `extends User` instead of declaring its own `customerId` and `password` fields.
+- Constructor calls `super(customerId, password)` to delegate to the inherited `User` constructor.
+- `getCustomerId()` delegates to `getId()`; `setCustomerId()` delegates to `setId()`.
+- `getPassword()` / `setPassword()` are inherited from `User` — removed duplicate declarations.
+- All existing callers (DAO, Menu) remain fully compatible since method signatures are unchanged.
+
+#### 4. Admin Data Access: `src/dao/AdminDAO.java` — NEW
+- **`authenticateAdmin(String username, String password)`:** Queries `admins` table to verify credentials using `PreparedStatement`.
+- **`getAllCustomers()`:** Returns all rows from `customers` table as a `List<Customer>`, ordered by `customer_id ASC`.
+- **`searchCustomers(String searchTerm)`:** Searches by `customer_id`, `name LIKE`, `email LIKE`, or `phone LIKE` simultaneously.
+- **`deleteCustomer(int customerId)`:** Atomic transaction that deletes: (1) all transactions referencing customer accounts, (2) all accounts, (3) the customer record. Uses `setAutoCommit(false)` / `commit()` / `rollback()`.
+- **`updateAccountStatus(long accountNo, String status)`:** UPDATEs `accounts.status` to `'FROZEN'` or `'ACTIVE'`.
+- **`accountExists(long accountNo)`:** Checks if an account number exists in the database.
+- **`getAllTransactions()`:** Returns all transactions in the system ordered by time descending.
+- **`getBankStatistics()`:** Runs 6 aggregate queries and returns a `Map<String, Object>` containing total customers, total accounts, total balance, total transactions, savings count, and current count.
+
+#### 5. Admin Dashboard: `src/menu/AdminMenu.java` — NEW
+- **`showLoginForm(Scanner scanner)`:** Prompts for username/password, calls `adminDAO.authenticateAdmin()`, and enters the dashboard loop on success.
+- **`showDashboard(Scanner scanner)`:** Switch-case loop with 8 options.
+- **`viewCustomers()`:** Prints all customers in a formatted table (ID, Name, Email, Phone, Address).
+- **`searchCustomer(Scanner scanner)`:** Prompts for query, displays matching results.
+- **`deleteCustomer(Scanner scanner)`:** Prompts for customer ID, shows a `yes/no` confirmation warning about cascading deletion, then executes.
+- **`freezeAccount(Scanner scanner)`:** Prompts for account number, validates existence, updates status to `FROZEN`.
+- **`activateAccount(Scanner scanner)`:** Prompts for account number, validates existence, updates status to `ACTIVE`.
+- **`viewTransactions()`:** Prints all system transactions in a wide formatted table (TX ID, Date, Type, Amount, From, To, Remarks).
+- **`viewStatistics()`:** Displays aggregate bank metrics (total customers, accounts breakdown, total deposits, transaction count).
+
+#### 6. Main Entry Point Update: `src/Main.java` — MODIFIED (Stage 9)
+- Imported `menu.AdminMenu` and instantiated `AdminMenu adminMenu`.
+- Replaced case `"3"` stub with `adminMenu.showLoginForm(scanner)`.
+
+---
+
 ### Stage 3: Customer Login Process
 
 ```
@@ -824,18 +899,63 @@ accountDAO.getAccountsByCustomerId(customer.getCustomerId())
                        Return to Dashboard
 ```
 
+### Stage 9: Admin Login & Dashboard Flow
+
+```
+Main Menu → User selects "3. Admin Login"
+        │
+        ▼
+AdminMenu.showLoginForm(scanner)
+        │
+        ▼
+   Prompt: "Enter Username:" / "Enter Password:"
+        │
+        ├──► Empty fields ──► "Fields cannot be empty" ──► Return to Main Menu
+        │
+        └──► adminDAO.authenticateAdmin(username, password)
+                │
+                ├──► false ──► "Invalid admin username or password" ──► Return to Main Menu
+                │
+                └──► true ──► "Authentication successful!"
+                        │
+                        ▼
+              showDashboard(scanner) ←──────────────────────────────────────────┐
+                        │                                                       │
+                        ▼                                                       │
+              Print Admin Dashboard Menu (8 options)                            │
+              Prompt: "Enter your choice:"                                      │
+                        │                                                       │
+            ┌───────────┼─────────────────────────────────────────────┐         │
+            │           │           │           │           │         │         │
+         Case 1      Case 2     Case 3     Case 4/5    Case 6     Case 7    Case 8
+      View All     Search     Delete     Freeze/     View All    Bank     Logout
+      Customers    Customer   Customer   Activate    Transactions Stats   ──► Return
+            │           │           │     Account         │         │      to Main
+            ▼           ▼           ▼         │           ▼         ▼
+       getAllCustomers  searchCustomers  deleteCustomer    │    getAllTransactions  getBankStatistics
+       → Print table   → Print matches → Confirm yes/no  │    → Print table      → Print summary
+                                        → Cascade delete  │
+                                                          ▼
+                                                updateAccountStatus()
+                                                → Print success/fail
+                                                          │
+                                                          ▼
+                                                  Return to Dashboard ──────────────────────────────┘
+```
+
 ---
 
 ## 🧠 OOP & Software Design Patterns Applied
 The project enforces structured, enterprise-ready software patterns:
 
-1. **Encapsulation:** Data variables in `Customer.java`, `Account.java`, and `Transaction.java` are private and accessed via getters/setters. Sensitive info (password) is omitted from `Customer.toString()`.
-2. **Data Access Object (DAO) Pattern:** SQL queries and DB logic live strictly inside `CustomerDAO.java`, `AccountDAO.java`, and `TransactionDAO.java`. Presentation classes know nothing about MySQL drivers, connections, or SQL semantics — they only work with Java objects and return values.
+1. **Encapsulation:** Data variables in `Customer.java`, `Account.java`, and `Transaction.java` are private and accessed via getters/setters. Sensitive info (password) is omitted from `Customer.toString()` and `Admin.toString()`.
+2. **Data Access Object (DAO) Pattern:** SQL queries and DB logic live strictly inside `CustomerDAO.java`, `AccountDAO.java`, `TransactionDAO.java`, and `AdminDAO.java`. Presentation classes know nothing about MySQL drivers, connections, or SQL semantics — they only work with Java objects and return values.
 3. **Separation of Concerns (SoC):** Distinct classes represent separate application layers:
    - `Main.java`: Router and lifecycle coordinator.
-   - `Customer.java` / `Account.java` / `Transaction.java`: Model data classes (POJOs).
-   - `CustomerDAO.java` / `AccountDAO.java` / `TransactionDAO.java`: DB persistence layer.
-   - `LoginMenu.java` / `CustomerMenu.java`: Presentation and interactive input layer.
+   - `User.java` / `Customer.java` / `Admin.java` / `Account.java` / `Transaction.java`: Model data classes (POJOs with inheritance).
+   - `CustomerDAO.java` / `AccountDAO.java` / `TransactionDAO.java` / `AdminDAO.java`: DB persistence layer.
+   - `LoginMenu.java` / `CustomerMenu.java` / `AdminMenu.java`: Presentation and interactive input layer.
+9. **Inheritance (OOP):** The `User` superclass contains common fields (`id`, `password`) that `Customer` and `Admin` inherit. This avoids code duplication and establishes a clean type hierarchy. The `Customer.getCustomerId()` method delegates to `User.getId()`, preserving backward compatibility.
 4. **Single Responsibility Principle (SRP):** Each class has exactly one responsibility.
 5. **Atomicity (Database Transactions):** In `TransactionDAO.depositAmount()`, both the balance update and transaction log insert are wrapped in a single database transaction (`setAutoCommit(false)` / `commit()` / `rollback()`). Either both succeed or neither does — preserving data integrity.
 6. **Defensive Programming:**
@@ -854,26 +974,35 @@ The project enforces structured, enterprise-ready software patterns:
 
 ## ⚙️ Setup & Verification Steps
 
-To run and verify the system up to Stage 8:
-1. **Initialize Database:** Ensure `sql/bank_management.sql` has been executed in your MySQL database instance.
+To run and verify the system up to Stage 9:
+1. **Initialize Database:** Ensure `sql/bank_management.sql` has been executed in your MySQL database instance (this creates the `admins` table and inserts the default admin: `admin` / `admin123`).
 2. **Update Connection Parameters:** Open `src/database/DBConnection.java` and replace values with your database credentials.
 3. **Add Driver Library:** Ensure `mysql-connector-j-8.0.33.jar` is inside the `lib/` directory and added to your project classpath.
 4. **Execute Application:** Run `Main.java`.
-5. **Verify Transactions (Prerequisite):** Perform at least one deposit, one withdrawal, and one transfer to populate the transactions log.
-6. **Verify Statement Selection:**
-   - Log in as a customer, select Option 5 ("Mini Statement").
-   - Select an account from the displayed list.
-7. **Verify Table Formatting:**
-   - Confirm that the console prints a neatly aligned table with headers: `TX ID | Date & Time | Type | Amount | Remarks`.
-   - Confirm that amounts are prefixed with `Rs.` and formatted to 2 decimal places.
-8. **Verify Custom Remarks Logic:**
-   - Verify that deposits display "Self deposit" or custom remarks.
-   - Verify that withdrawals display "Self withdrawal" or custom remarks.
-   - Verify that transfer transactions show "Transfer to Acc: X" if the selected account was the sender, or "Transfer from Acc: Y" if the selected account was the recipient.
-9. **Verify Query Limit:**
-   - Perform more than 5 transactions on the same account. Select Option 5 again and verify that only the 5 most recent transactions are displayed in descending chronological order.
-10. **Verify Empty State:**
-    - Open a brand-new account (with no transactions other than opening deposit if it logs, or construct one). Select Option 5 and confirm the display shows `"No transactions recorded for this account."`
+5. **Verify Admin Login:**
+   - Select Option 3 ("Admin Login") from the Main Menu.
+   - Enter wrong credentials — confirm rejection message appears.
+   - Enter `admin` / `admin123` — confirm successful login and the Admin Dashboard is displayed.
+6. **Verify View All Customers:**
+   - Select Option 1. Confirm a formatted table displays all registered customers (ID, Name, Email, Phone, Address).
+7. **Verify Search Customer:**
+   - Select Option 2. Search by customer ID, partial name, email, or phone.
+   - Verify matching results are displayed. Search with a non-matching term — confirm "No matching customers found" message.
+8. **Verify Delete Customer (Cascade):**
+   - Select Option 3. Enter a customer ID. Confirm the warning prompt appears.
+   - Type `no` — confirm deletion is cancelled.
+   - Type `yes` — confirm deletion success message. Verify the customer, their accounts, and their transactions are removed from the database.
+9. **Verify Freeze Account:**
+   - Select Option 4. Enter a valid account number. Confirm success message shows the account is now FROZEN.
+   - Enter a non-existent account number — confirm the error message.
+10. **Verify Activate Account:**
+    - Select Option 5. Enter the same frozen account number. Confirm success message shows it is now ACTIVE.
+11. **Verify View All Transactions:**
+    - Select Option 6. Confirm a wide formatted table displays all system transactions with TX ID, Date, Type, Amount, From/To accounts, and Remarks.
+12. **Verify Bank Statistics:**
+    - Select Option 7. Confirm the summary displays total customers, total accounts (with Savings/Current breakdown), total bank deposits (Rs. formatted), and total transactions count.
+13. **Verify Logout:**
+    - Select Option 8. Confirm the dashboard exits and returns to the Main Menu.
 
 ---
 
@@ -889,7 +1018,7 @@ To run and verify the system up to Stage 8:
 | **6** | Withdrawal with Custom Exception Handling | ✅ Complete | July 13, 2026 |
 | **7** | Fund Transfer with SQL Transaction Atomicity | ✅ Complete | July 13, 2026 |
 | **8** | Transaction History & Mini Statement Queries | ✅ Complete | July 13, 2026 |
-| **9** | Administrator Operations Module | ⬜ Not Started | — |
+| **9** | Administrator Operations Module | ✅ Complete | July 13, 2026 |
 | **10** | System Refactoring, Polish, and Detailed README documentation | ⬜ Not Started | — |
 
 ---
@@ -963,4 +1092,16 @@ feat: implement mini statement and transaction history (Stage 8)
 - viewMiniStatement() prompts account selection, queries DB, and displays a neatly formatted text table
 - Format transaction type, timestamp, amount with Rs. symbol, and display customized sender/recipient remarks
 ```
+
+### Stage 9
+```
+feat: implement administrator operations module with OOP inheritance (Stage 9)
+
+- Create User.java base superclass with common id/password fields (OOP Inheritance)
+- Create Admin.java model extending User with username field
+- Refactor Customer.java to extend User, delegating customerId/password to inherited fields
+- Create AdminDAO.java with authenticate, CRUD customers, account status, transactions, statistics
+- Create AdminMenu.java with login prompt and 8-option admin dashboard (view/search/delete customers, freeze/activate accounts, view transactions, bank statistics)
+- Update Main.java: wire Option 3 to AdminMenu.showLoginForm()
+- deleteCustomer() uses atomic JDBC transactions to cascade-delete transactions, accounts, and customer
 ```
