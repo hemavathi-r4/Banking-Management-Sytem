@@ -1,6 +1,7 @@
 package dao;
 
 import database.DBConnection;
+import exception.InsufficientFundsException;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -11,8 +12,9 @@ import java.sql.SQLException;
  * TransactionDAO - Data Access Object for Transaction-related database operations.
  *
  * This class handles all SQL operations that involve money movement:
- *   - Depositing money into an account.
- *   - Fetching the latest balance after a transaction.
+ *   - Stage 5: Depositing money into an account.
+ *   - Stage 6: Withdrawing money from an account (throws InsufficientFundsException).
+ *   - Fetching the latest balance after any transaction.
  *
  * IMPORTANT CONCEPT — DATABASE TRANSACTIONS (not bank transactions):
  * A "database transaction" means a group of SQL statements that must ALL succeed
@@ -172,5 +174,123 @@ public class TransactionDAO {
         // Return -1.0 as a sentinel value meaning "balance could not be fetched"
         // The caller should check for this value before displaying it.
         return -1.0;
+    }
+
+    // --------------------------------------------------
+    // Method 3: Withdraw money from an account
+    // --------------------------------------------------
+    /**
+     * Withdraws the given amount from the specified account.
+     *
+     * This method introduces a KEY DIFFERENCE from depositAmount():
+     * Before touching the database, it checks the account balance first.
+     * If funds are insufficient, it throws InsufficientFundsException —
+     * a custom checked exception — BEFORE any SQL runs. No rollback needed.
+     *
+     * WHY throw an exception instead of returning false?
+     * - The method signature 'throws InsufficientFundsException' forces every caller
+     *   to explicitly handle this failure case at compile time.
+     * - The exception carries amountRequested and availableBalance fields, giving
+     *   the UI (CustomerMenu) rich data to display a helpful error message.
+     * - A plain 'return false' gives zero information about WHY it failed.
+     *
+     * If funds ARE sufficient, this method executes TWO SQL statements atomically:
+     *   Step A: UPDATE accounts SET balance = balance - ? WHERE account_no = ?
+     *   Step B: INSERT INTO transactions (from_account, transaction_type, amount, remarks)
+     *           VALUES (?, 'WITHDRAWAL', ?, 'Self withdrawal')
+     *
+     * Note the key SQL difference vs. deposit:
+     *   DEPOSIT:    SET balance = balance + ?   (add to account)
+     *   WITHDRAWAL: SET balance = balance - ?   (subtract from account)
+     *   DEPOSIT logs to: to_account column (money came IN to the account)
+     *   WITHDRAWAL logs to: from_account column (money went OUT of the account)
+     *
+     * @param accountNo the account number to withdraw from
+     * @param amount    the amount to withdraw
+     * @return true if the withdrawal succeeded and was committed
+     * @throws InsufficientFundsException if the account balance is less than the amount
+     */
+    public boolean withdrawAmount(long accountNo, double amount) throws InsufficientFundsException {
+
+        // ------------------------------------------
+        // PRE-CHECK: Verify sufficient funds BEFORE opening a transaction
+        // ------------------------------------------
+        // We fetch the balance first using getUpdatedBalance() — a separate,
+        // read-only SELECT query. This keeps the balance check outside the
+        // transaction scope, which is fine: if the balance check passes but
+        // the UPDATE fails, the rollback will undo it safely.
+        double currentBalance = getUpdatedBalance(accountNo);
+
+        if (currentBalance < amount) {
+            // Not enough funds — throw the custom exception.
+            // Execution jumps immediately to the catch block in CustomerMenu.
+            // No SQL has been run yet, so no rollback is needed.
+            throw new InsufficientFundsException(amount, currentBalance);
+        }
+
+        // ------------------------------------------
+        // SQL: Atomic balance decrement + transaction log
+        // ------------------------------------------
+        String updateSql = "UPDATE accounts SET balance = balance - ? WHERE account_no = ?";
+        String insertSql = "INSERT INTO transactions (from_account, transaction_type, amount, remarks) " +
+                           "VALUES (?, 'WITHDRAWAL', ?, 'Self withdrawal')";
+
+        Connection conn = null;
+
+        try {
+            conn = DBConnection.getConnection();
+            conn.setAutoCommit(false); // Begin atomic transaction
+
+            // STEP 1: Decrement the account balance
+            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                updateStmt.setDouble(1, amount);
+                updateStmt.setLong(2, accountNo);
+
+                int rowsUpdated = updateStmt.executeUpdate();
+
+                if (rowsUpdated == 0) {
+                    System.out.println("\n[ERROR] Account not found. Withdrawal aborted.\n");
+                    conn.rollback();
+                    return false;
+                }
+            }
+
+            // STEP 2: Log the withdrawal to the transactions table
+            // Note: 'from_account' is used here (not 'to_account') because
+            //       money is leaving the account, not arriving.
+            try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                insertStmt.setLong(1, accountNo);
+                insertStmt.setDouble(2, amount);
+                insertStmt.executeUpdate();
+            }
+
+            // STEP 3: Commit — permanently save both changes
+            conn.commit();
+            return true;
+
+        } catch (SQLException e) {
+            System.out.println("\n[ERROR] Withdrawal failed due to a database error.");
+            System.out.println("        Details: " + e.getMessage());
+            System.out.println("        Your balance has NOT been changed.\n");
+
+            try {
+                if (conn != null) conn.rollback();
+            } catch (SQLException rollbackEx) {
+                System.out.println("[ERROR] Rollback also failed: " + rollbackEx.getMessage());
+            }
+
+            return false;
+
+        } finally {
+            // Always restore auto-commit and close — same pattern as depositAmount()
+            try {
+                if (conn != null) {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                }
+            } catch (SQLException closeEx) {
+                System.out.println("[ERROR] Could not close connection: " + closeEx.getMessage());
+            }
+        }
     }
 }

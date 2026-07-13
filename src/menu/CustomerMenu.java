@@ -2,6 +2,7 @@ package menu;
 
 import dao.AccountDAO;
 import dao.TransactionDAO;
+import exception.InsufficientFundsException;
 import model.Account;
 import model.Customer;
 
@@ -16,9 +17,10 @@ import java.util.Scanner;
  *           or prompts to open a SAVINGS/CURRENT account with min deposit Rs. 1000.
  * Stage 5: Implements "2. Deposit" — account selection, amount validation (min Rs. 500),
  *           atomic balance update + transaction log via TransactionDAO.
+ * Stage 6: Implements "3. Withdraw" — same flow as deposit but decrements balance,
+ *           uses InsufficientFundsException for balance validation.
  *
- * Future stages will implement options 3–5:
- *   3. Withdraw     (Stage 6)
+ * Future stages will implement options 4–5:
  *   4. Fund Transfer (Stage 7)
  *   5. Mini Statement (Stage 8)
  */
@@ -50,7 +52,7 @@ public class CustomerMenu {
                     deposit(customer, scanner);
                     break;
                 case "3":
-                    System.out.println("\n>> Withdraw will be implemented in Stage 6.\n");
+                    withdraw(customer, scanner);
                     break;
                 case "4":
                     System.out.println("\n>> Fund Transfer will be implemented in Stage 7.\n");
@@ -268,6 +270,121 @@ public class CustomerMenu {
             System.out.println("==========================================\n");
         }
         // If deposit failed, TransactionDAO already printed the error message.
+    }
+
+    // --------------------------------------------------
+    // Stage 6: Withdraw
+    // --------------------------------------------------
+    /**
+     * Handles the "Withdraw" flow.
+     *
+     * Flow:
+     *   1. Fetch all accounts for this customer.
+     *   2a. If no accounts → tell user to open one first.
+     *   2b. If accounts exist → display numbered list → user picks one.
+     *   3. Prompt for withdrawal amount (minimum Rs. 500), validate in a loop.
+     *   4. Call transactionDAO.withdrawAmount() inside a try-catch for InsufficientFundsException:
+     *        - UPDATE accounts SET balance = balance - amount
+     *        - INSERT INTO transactions (WITHDRAWAL log)
+     *   5. On success: fetch updated balance and display success confirmation.
+     *   6. On InsufficientFundsException: display detailed failure info.
+     *
+     * @param customer the logged-in Customer object
+     * @param scanner  the shared Scanner for reading console input
+     */
+    private void withdraw(Customer customer, Scanner scanner) {
+        System.out.println("\n------------------------------------------");
+        System.out.println("               WITHDRAWAL");
+        System.out.println("------------------------------------------");
+
+        // Step 1: Fetch customer's accounts
+        List<Account> accounts = accountDAO.getAccountsByCustomerId(customer.getCustomerId());
+
+        // Step 2a: No accounts — cannot withdraw
+        if (accounts.isEmpty()) {
+            System.out.println("  You do not have any accounts to withdraw from.");
+            System.out.println("  Please open an account first (Option 1).\n");
+            return;
+        }
+
+        // Step 2b: Display numbered list of available accounts
+        System.out.println("  Select the account to withdraw from:\n");
+        for (int i = 0; i < accounts.size(); i++) {
+            Account acc = accounts.get(i);
+            System.out.printf("  [%d] Account No: %d  |  Type: %s  |  Balance: Rs. %,.2f%n",
+                    i + 1, acc.getAccountNo(), acc.getAccountType(), acc.getBalance());
+        }
+        System.out.println();
+
+        // Step 3: Account selection with validation
+        int selectedIndex = -1;
+        while (true) {
+            System.out.print("  Enter choice (1" + (accounts.size() > 1 ? "-" + accounts.size() : "") + "): ");
+            String input = scanner.nextLine().trim();
+
+            try {
+                int choice = Integer.parseInt(input);
+                if (choice >= 1 && choice <= accounts.size()) {
+                    selectedIndex = choice - 1; // Convert to 0-based index
+                    break;
+                } else {
+                    System.out.println("  [!] Please enter a number between 1 and " + accounts.size() + ".");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("  [!] Invalid input. Please enter a number.");
+            }
+        }
+
+        Account selectedAccount = accounts.get(selectedIndex);
+        long accountNo = selectedAccount.getAccountNo();
+
+        // Step 4: Withdrawal amount validation
+        double withdrawAmount = 0;
+        while (true) {
+            System.out.print("  Enter amount to withdraw (Min Rs. 500): ");
+            String amtInput = scanner.nextLine().trim();
+
+            try {
+                withdrawAmount = Double.parseDouble(amtInput);
+
+                if (withdrawAmount < 500) {
+                    System.out.println("  [!] Minimum withdrawal amount is Rs. 500. Please try again.");
+                } else {
+                    break; // Valid amount — exit loop
+                }
+
+            } catch (NumberFormatException e) {
+                System.out.println("  [!] Invalid amount. Please enter a numeric value (e.g. 1000).");
+            }
+        }
+
+        // Step 5: Execute the withdrawal inside try-catch for custom exception
+        try {
+            boolean success = transactionDAO.withdrawAmount(accountNo, withdrawAmount);
+
+            if (success) {
+                // Step 6: Fetch the refreshed balance from the DB to confirm
+                double newBalance = transactionDAO.getUpdatedBalance(accountNo);
+
+                System.out.println("\n==========================================");
+                System.out.println("  ✓ Withdrawal Successful!");
+                System.out.println("==========================================");
+                System.out.printf( "  Amount Withdrawn  : Rs. %,.2f%n", withdrawAmount);
+                System.out.println("  Account Number    : " + accountNo);
+                if (newBalance >= 0) {
+                    System.out.printf("  Updated Balance   : Rs. %,.2f%n", newBalance);
+                }
+                System.out.println("==========================================\n");
+            }
+        } catch (InsufficientFundsException e) {
+            // Handle the custom exception by showing a descriptive message
+            System.out.println("\n==========================================");
+            System.out.println("  [!] Withdrawal Failed: Insufficient funds.");
+            System.out.println("==========================================");
+            System.out.printf( "  Requested : Rs. %,.2f%n", e.getAmountRequested());
+            System.out.printf( "  Available : Rs. %,.2f%n", e.getAvailableBalance());
+            System.out.println("==========================================\n");
+        }
     }
 
     // --------------------------------------------------

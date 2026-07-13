@@ -1,70 +1,63 @@
-# 📌 NEXT TASK — Stage 6: Withdrawal with Custom Exception Handling
+# 📌 NEXT TASK — Stage 7: Fund Transfer with SQL Transaction Atomicity
 
-**Planned Date:** July 12, 2026 (Saturday)  
-**Prerequisite:** Stage 5 must be tested and working (Deposit Functionality)
+**Planned Date:** July 14, 2026 (Monday)  
+**Prerequisite:** Stage 6 must be tested and working (Withdrawal Functionality)
 
 ---
 
 ## 🎯 Goal
 
-Implement withdrawal functionality for logged-in customers. When a customer selects "3. Withdraw" from the Customer Dashboard, the system should:
-1. Fetch the customer's accounts and display them.
-2. Prompt the customer to select which account to withdraw from.
-3. Prompt for a withdrawal amount (minimum Rs. 500).
-4. Validate that the account has sufficient funds.
-5. If insufficient: throw and catch a **custom exception** (`InsufficientFundsException`) — do NOT use a plain `if` check return.
-6. If sufficient: Update the account balance and log the transaction atomically.
-7. Display a success confirmation with the updated balance.
+Implement fund transfer functionality for logged-in customers. When a customer selects "4. Fund Transfer" from the Customer Dashboard, the system should:
+1. Fetch the customer's accounts and display them as options for the source account.
+2. Prompt the customer to select the source account.
+3. Prompt for the target account number (destination).
+4. Prompt for the transfer amount (minimum Rs. 100, must be positive).
+5. Prompt for custom transaction remarks (optional).
+6. Verify the following business rules:
+   - Destination account must exist in the database.
+   - Destination account must not be the same as the source account.
+   - Source account must have sufficient funds.
+7. Execute the transfer atomically as a single database transaction (decrements source, increments target, inserts transaction log).
+8. Display success confirmation showing updated balances.
 
 ---
 
 ## 📝 Tasks
 
-### Task 1 — Create `InsufficientFundsException.java` in `src/exception/`
+### Task 1 — Create `InvalidAccountException.java` in `src/exception/`
 
-- Create a **custom checked exception** class extending `Exception`.
+- Create a custom checked exception class extending `Exception`.
 - Fields:
-  - `private double amountRequested`
-  - `private double availableBalance`
+  - `private long invalidAccountNo`
 - Implement a constructor:
-  - `InsufficientFundsException(double amountRequested, double availableBalance)`
-  - Sets both fields and passes a descriptive message to `super()`:
-    - e.g. `"Insufficient funds. Requested: Rs. X.XX, Available: Rs. X.XX"`
-- Implement getters for both fields.
-- Override `getMessage()` if needed for a clean display.
-
----
+  - `InvalidAccountException(long invalidAccountNo, String message)`
+- Implement getter for the field.
 
 ### Task 2 — Extend `TransactionDAO.java` in `src/dao/`
 
 - Add a new method:
-  - `withdrawAmount(long accountNo, double amount) throws InsufficientFundsException`
-    - **Step 1:** Fetch the current balance using `getUpdatedBalance(accountNo)`.
-    - **Step 2:** If `balance < amount`, throw `new InsufficientFundsException(amount, balance)`.
-    - **Step 3:** If sufficient, run two SQL statements atomically (same pattern as `depositAmount`):
-      - `UPDATE accounts SET balance = balance - ? WHERE account_no = ?`
-      - `INSERT INTO transactions (from_account, transaction_type, amount, remarks) VALUES (?, 'WITHDRAWAL', ?, 'Self withdrawal')`
+  - `transferAmount(long fromAccountNo, long toAccountNo, double amount, String remarks) throws InsufficientFundsException, InvalidAccountException`
+    - **Step 1:** Fetch current balance of `fromAccountNo`. If `balance < amount`, throw `InsufficientFundsException`.
+    - **Step 2:** Check if `toAccountNo` exists in the database. If not, throw `InvalidAccountException`.
+    - **Step 3:** Perform atomic operations under `conn.setAutoCommit(false)`:
+      1. UPDATE `fromAccountNo` balance (subtract amount).
+      2. UPDATE `toAccountNo` balance (add amount).
+      3. INSERT transaction record: `INSERT INTO transactions (from_account, to_account, transaction_type, amount, remarks) VALUES (?, ?, 'TRANSFER', ?, ?)`
     - **Step 4:** `conn.commit()` on success, `conn.rollback()` on any `SQLException`.
-    - **Step 5:** Always restore `conn.setAutoCommit(true)` and close in a `finally` block.
-
----
+    - **Step 5:** Always restore auto-commit and release resources.
 
 ### Task 3 — Update `CustomerMenu.java` in `src/menu/`
 
-- Modify option `3` ("Withdraw") to call a new private `withdraw(customer, scanner)` method.
-- The `withdraw()` method must:
-  - Fetch accounts. If none: display message and return.
-  - Display numbered account list (same format as deposit).
-  - Validate account selection (same loop as deposit).
-  - Prompt for withdrawal amount (minimum Rs. 500, same loop as deposit).
-  - Call `transactionDAO.withdrawAmount(accountNo, amount)` inside a **try-catch** that catches `InsufficientFundsException`:
-    - On `InsufficientFundsException`: display:
-      ```
-      [!] Withdrawal Failed: Insufficient funds.
-          Requested : Rs. X,XXX.XX
-          Available : Rs. X,XXX.XX
-      ```
-    - On success: fetch updated balance, display the `✓ Withdrawal Successful!` banner.
+- Modify option `4` ("Fund Transfer") to call a new private `fundTransfer(customer, scanner)` method.
+- The `fundTransfer()` method must:
+  - Select source account from the list.
+  - Prompt for target account number and validate it.
+  - Prompt for amount (numeric, >= 100).
+  - Prompt for optional remarks.
+  - Call `transactionDAO.transferAmount(fromAcc, toAcc, amount, remarks)` in a `try-catch` catching:
+    - `InsufficientFundsException` -> print error details.
+    - `InvalidAccountException` -> print error details.
+  - On success, display a success banner with new source balance.
 
 ---
 
@@ -72,89 +65,16 @@ Implement withdrawal functionality for logged-in customers. When a customer sele
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/exception/InsufficientFundsException.java` | NEW | Custom checked exception for insufficient balance |
-| `src/dao/TransactionDAO.java` | MODIFY | Add `withdrawAmount()` method |
-| `src/menu/CustomerMenu.java` | MODIFY | Implement Withdraw flow for option 3 |
-
----
-
-## 🏗️ Expected Flow
-
-```
-Customer Dashboard → User selects "3. Withdraw"
-    │
-    ▼
-accountDAO.getAccountsByCustomerId(customerId)
-    │
-    ├── No accounts ──► "No accounts found." ──► Return to Dashboard
-    │
-    └── Accounts found ──► Display numbered list
-                           ──► Prompt: "Select account (1/2/...): "
-                           [Validate selection]
-                               │
-                               ▼
-                           Prompt: "Enter amount to withdraw (Min Rs. 500): "
-                           [Validate: numeric, >= 500]
-                               │
-                               ▼
-                           transactionDAO.withdrawAmount(accountNo, amount)
-                               │
-                               ├── getUpdatedBalance(accountNo)
-                               │       │
-                               │   balance < amount?
-                               │       │
-                               │       └── YES ──► throw InsufficientFundsException
-                               │                        │
-                               │                        ▼
-                               │               CustomerMenu catches it
-                               │               Displays:
-                               │                 "[!] Insufficient funds."
-                               │                 "Requested: Rs. X,XXX.XX"
-                               │                 "Available: Rs. X,XXX.XX"
-                               │                        │
-                               │                        ▼
-                               │               Return to Dashboard
-                               │
-                               └── balance >= amount ──► Atomic:
-                                       UPDATE accounts SET balance = balance - ?
-                                       INSERT INTO transactions ('WITHDRAWAL', ...)
-                                       conn.commit()
-                                           │
-                                           ▼
-                                   getUpdatedBalance(accountNo)
-                                           │
-                                           ▼
-                                   "✓ Withdrawal Successful!"
-                                   "Amount Withdrawn : Rs. X,XXX.XX"
-                                   "Updated Balance  : Rs. X,XXX.XX"
-                                           │
-                                           ▼
-                                   Return to Dashboard
-```
+| `src/exception/InvalidAccountException.java` | NEW | Custom exception for nonexistent or inactive accounts |
+| `src/dao/TransactionDAO.java` | MODIFY | Add `transferAmount()` logic with JDBC transaction control |
+| `src/menu/CustomerMenu.java` | MODIFY | Implement option 4 UI flow |
 
 ---
 
 ## ✅ Definition of Done
 
-- [ ] `InsufficientFundsException` is a custom checked exception in the `exception` package.
-- [ ] `withdrawAmount()` throws `InsufficientFundsException` (does NOT use a plain `return false` for insufficient funds).
-- [ ] Withdrawal updates the `accounts.balance` column correctly (decrements, not increments).
-- [ ] Each withdrawal is recorded in the `transactions` table with `transaction_type = 'WITHDRAWAL'`.
-- [ ] Balance update and transaction log insert are atomic (commit/rollback).
-- [ ] `CustomerMenu.withdraw()` catches `InsufficientFundsException` and displays a clear, detailed error.
-- [ ] Minimum withdrawal amount of Rs. 500 is enforced with looped validation.
-- [ ] Updated balance is fetched from the database and shown on success.
-- [ ] All DB resources are safely released.
-
----
-
-## 🚫 What NOT to Implement in Stage 6
-
-- ❌ Fund Transfer (Stage 7)
-- ❌ Transaction History display (Stage 8)
-- ❌ Admin operations (Stage 9)
-- ❌ Account freezing or status checks (the `status` column exists in DB but enforcement is a polish task)
-
----
-
-> ⚠️ **Do NOT start Stage 6 until Stage 5 is fully tested and confirmed working.**
+- [ ] `InvalidAccountException` is implemented and used for invalid target accounts.
+- [ ] Transfer amount is validated to be positive and >= Rs. 100.
+- [ ] Transfer decrement, increment, and transaction log are executed atomically (using commit/rollback).
+- [ ] In case of any exception or database failure, no funds are moved (guaranteed transaction rollback).
+- [ ] User dashboard handles exceptions gracefully.
