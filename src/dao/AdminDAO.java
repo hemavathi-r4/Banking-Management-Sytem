@@ -1,7 +1,9 @@
 package dao;
 
 import database.DBConnection;
+import model.Account;
 import model.Customer;
+import model.PageResult;
 import model.Transaction;
 import util.PasswordUtil;
 
@@ -358,5 +360,170 @@ public class AdminDAO {
         }
 
         return stats;
+    }
+
+    // --------------------------------------------------
+    // Method: Paginated Customer Search (Stage 14)
+    // --------------------------------------------------
+    /**
+     * Retrieves paginated customer records with optional search filter on ID, name, email, or phone.
+     *
+     * @param page       1-indexed page number
+     * @param pageSize   records per page
+     * @param searchTerm optional search filter
+     * @return PageResult of Customer objects
+     */
+    public PageResult<Customer> getPaginatedCustomers(int page, int pageSize, String searchTerm) {
+        int validPage     = Math.max(1, page);
+        int validPageSize = Math.max(1, pageSize);
+        int offset        = (validPage - 1) * validPageSize;
+
+        StringBuilder whereClause = new StringBuilder(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+
+        if (searchTerm != null && !searchTerm.trim().isEmpty()) {
+            whereClause.append(" AND (customer_id = ? OR name LIKE ? OR email LIKE ? OR phone LIKE ?)");
+            int searchId = -1;
+            try {
+                searchId = Integer.parseInt(searchTerm.trim());
+            } catch (NumberFormatException ignored) {}
+            String term = "%" + searchTerm.trim() + "%";
+
+            params.add(searchId);
+            params.add(term);
+            params.add(term);
+            params.add(term);
+        }
+
+        String countSql  = "SELECT COUNT(*) FROM customers" + whereClause;
+        String selectSql = "SELECT * FROM customers" + whereClause +
+                           " ORDER BY customer_id ASC LIMIT ? OFFSET ?";
+
+        long totalRecords = 0;
+        List<Customer> customers = new ArrayList<>();
+
+        try (Connection conn = DBConnection.getConnection()) {
+
+            try (PreparedStatement countStmt = conn.prepareStatement(countSql)) {
+                for (int i = 0; i < params.size(); i++) {
+                    countStmt.setObject(i + 1, params.get(i));
+                }
+                try (ResultSet rs = countStmt.executeQuery()) {
+                    if (rs.next()) totalRecords = rs.getLong(1);
+                }
+            }
+
+            try (PreparedStatement selectStmt = conn.prepareStatement(selectSql)) {
+                int paramIdx = 1;
+                for (Object p : params) {
+                    selectStmt.setObject(paramIdx++, p);
+                }
+                selectStmt.setInt(paramIdx++, validPageSize);
+                selectStmt.setInt(paramIdx, offset);
+
+                try (ResultSet rs = selectStmt.executeQuery()) {
+                    while (rs.next()) {
+                        Customer customer = new Customer(
+                            rs.getInt("customer_id"),
+                            rs.getString("name"),
+                            rs.getString("email"),
+                            rs.getString("phone"),
+                            rs.getString("password"),
+                            rs.getString("address")
+                        );
+                        customers.add(customer);
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("[AdminDAO] Paginated customer search failed: " + e.getMessage());
+        }
+
+        return new PageResult<>(customers, validPage, validPageSize, totalRecords);
+    }
+
+    // --------------------------------------------------
+    // Method: Paginated Account Search (Stage 14)
+    // --------------------------------------------------
+    /**
+     * Retrieves paginated bank accounts with optional filters on accountType, status, or accountNo.
+     *
+     * @param page           1-indexed page number
+     * @param pageSize       records per page
+     * @param accountType    "SAVINGS" / "CURRENT" / null
+     * @param statusFilter   "ACTIVE" / "FROZEN" / "CLOSED" / null
+     * @param accountNoFilter specific account number or null
+     * @return PageResult of Account objects
+     */
+    public PageResult<Account> getPaginatedAccounts(int page, int pageSize, String accountType,
+                                                    String statusFilter, Long accountNoFilter) {
+        int validPage     = Math.max(1, page);
+        int validPageSize = Math.max(1, pageSize);
+        int offset        = (validPage - 1) * validPageSize;
+
+        StringBuilder whereClause = new StringBuilder(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+
+        if (accountNoFilter != null && accountNoFilter > 0) {
+            whereClause.append(" AND account_no = ?");
+            params.add(accountNoFilter);
+        }
+
+        if (accountType != null && !accountType.trim().isEmpty() && !accountType.equalsIgnoreCase("ALL")) {
+            whereClause.append(" AND account_type = ?");
+            params.add(accountType.trim().toUpperCase());
+        }
+
+        if (statusFilter != null && !statusFilter.trim().isEmpty() && !statusFilter.equalsIgnoreCase("ALL")) {
+            whereClause.append(" AND status = ?");
+            params.add(statusFilter.trim().toUpperCase());
+        }
+
+        String countSql  = "SELECT COUNT(*) FROM accounts" + whereClause;
+        String selectSql = "SELECT * FROM accounts" + whereClause +
+                           " ORDER BY account_no ASC LIMIT ? OFFSET ?";
+
+        long totalRecords = 0;
+        List<Account> accounts = new ArrayList<>();
+
+        try (Connection conn = DBConnection.getConnection()) {
+
+            try (PreparedStatement countStmt = conn.prepareStatement(countSql)) {
+                for (int i = 0; i < params.size(); i++) {
+                    countStmt.setObject(i + 1, params.get(i));
+                }
+                try (ResultSet rs = countStmt.executeQuery()) {
+                    if (rs.next()) totalRecords = rs.getLong(1);
+                }
+            }
+
+            try (PreparedStatement selectStmt = conn.prepareStatement(selectSql)) {
+                int paramIdx = 1;
+                for (Object p : params) {
+                    selectStmt.setObject(paramIdx++, p);
+                }
+                selectStmt.setInt(paramIdx++, validPageSize);
+                selectStmt.setInt(paramIdx, offset);
+
+                try (ResultSet rs = selectStmt.executeQuery()) {
+                    while (rs.next()) {
+                        Account account = new Account(
+                            rs.getLong("account_no"),
+                            rs.getInt("customer_id"),
+                            rs.getString("account_type"),
+                            rs.getDouble("balance"),
+                            rs.getString("status")
+                        );
+                        accounts.add(account);
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("[AdminDAO] Paginated account search failed: " + e.getMessage());
+        }
+
+        return new PageResult<>(accounts, validPage, validPageSize, totalRecords);
     }
 }

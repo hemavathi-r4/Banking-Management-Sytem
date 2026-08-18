@@ -212,3 +212,80 @@ java -cp "bin;lib\mysql-connector-j-8.0.33.jar;lib\jbcrypt-0.4.jar;lib\junit-4.1
 | Frozen account blocks all operations | `shouldThrowAccountFrozenExceptionOnDeposit/Withdrawal/Transfer` |
 | Wrong password rejected | `shouldRejectLoginWithWrongPassword()` |
 | BCrypt hash stored on registration | `shouldHashPasswordOnRegistration()` |
+
+---
+
+## 📜 Stage 13 — Audit Logging
+
+An audit logging system records important security, authentication, account, and financial operations to maintain an immutable audit trail for compliance, traceability, and operational accountability.
+
+### Audit Log Schema & Model
+
+* **Table**: `audit_logs` (`sql/stage13_14_migration.sql`)
+* **Model**: `src/model/AuditLog.java`
+* **DAO & Service**: `src/dao/AuditLogDAO.java` and `src/service/AuditLogService.java`
+* **Columns**: `log_id`, `user_id` (FK), `username`, `action`, `description`, `status` (`SUCCESS`/`FAILURE`), `timestamp`
+
+### Operations Logged
+
+| Category | Actions Logged | Details |
+|----------|---------------|---------|
+| **Authentication** | `LOGIN`, `LOGOUT` | Logs user/admin login attempts (`SUCCESS`/`FAILURE`) and logout events. Plain-text passwords and hashes are **never** logged. |
+| **Account Operations** | `ACCOUNT_CREATED`, `ACCOUNT_FROZEN`, `ACCOUNT_ACTIVATED` | Logs account creation by customers and account freeze/unfreeze actions by admins. |
+| **Banking Operations** | `DEPOSIT`, `WITHDRAWAL`, `TRANSFER` | Logs deposit, withdrawal, and fund transfer operations (`SUCCESS`/`FAILURE`) with account numbers and amounts. |
+| **Admin Operations** | `CUSTOMER_DELETED` | Logs administrative deletion of customer accounts. |
+
+### Admin Audit Log Viewer
+
+Admins can view system audit logs directly from the Admin Dashboard (**Option 8**):
+* Filter logs by User ID / Username, Action type (`LOGIN`, `DEPOSIT`, `TRANSFER`, etc.), or Status (`SUCCESS`/`FAILURE`)
+* Interactive pagination (`[N] Next`, `[P] Previous`, `[F] Filter`, `[C] Clear Filters`, `[B] Back`)
+* Role-restricted: Customers cannot view system audit logs.
+
+---
+
+## 🔍 Stage 14 — Search, Filtering & Pagination
+
+Database-level searching, multi-criteria filtering, and SQL pagination were added to handle large volumes of data efficiently without loading full tables into Java memory.
+
+### SQL-Level Pagination (`LIMIT ? OFFSET ?`)
+
+All list views use database-level pagination:
+* **Reusable model**: `src/model/PageResult<T>.java` encapsulates page records, `currentPage`, `pageSize`, `totalRecords`, and `totalPages`
+* **Page size**: Default 5 or 10 records per page
+* **Query execution**: Uses SQL `COUNT(*)` for total records, followed by `SELECT ... LIMIT ? OFFSET ?` for page records
+
+### Performance & Database Indexes
+
+Executed `sql/stage13_14_migration.sql` to add B-tree indexes for frequently searched/filtered columns:
+* `transactions(from_account, to_account)`, `transactions(transaction_type)`, `transactions(transaction_time)`
+* `accounts(customer_id)`, `accounts(status)`
+* `customers(name)`, `customers(email)`, `customers(phone)`
+* `audit_logs(user_id)`, `audit_logs(username)`, `audit_logs(action)`, `audit_logs(status)`, `audit_logs(timestamp)`
+
+### Search & Filtering Features
+
+1. **Transaction Search & Filtering**:
+   * Customer transaction view & Admin global transaction view support filtering by transaction type (`DEPOSIT`/`WITHDRAWAL`/`TRANSFER`), min/max amount, and date ranges.
+2. **Customer & Account Search**:
+   * Admin customer view supports keyword search on Customer ID, Name, Email, or Phone using parameterized SQL `LIKE`.
+3. **Audit Log Search & Filtering**:
+   * Admin audit log view supports filtering by User ID, Action, and Status combined with pagination.
+
+---
+
+## 📊 Extended JUnit Test Suite (Stage 12, 13 & 14)
+
+Run `compile_and_run_tests.bat` to execute all test classes:
+
+* `PasswordUtilTest` (8 tests) — BCrypt hashing & verification
+* `CustomerDAOTest` (9 tests) — Customer registration, duplicate check, login
+* `AccountDAOTest` (6 tests) — Account creation & customer account lookup
+* `TransactionDAOTest` (23 tests) — Deposit, withdrawal, atomic transfer, custom exceptions
+* `AuditLogServiceTest` (4 tests) — Audit log creation, success/failure logging, user log retrieval
+* `PaginationTest` (5 tests) — `PageResult` calculations, invalid page normalization, boundary conditions
+* `TransactionSearchTest` (3 tests) — Paginated transaction fetching, type filter, amount range filter
+* `AdminSearchTest` (3 tests) — Paginated customer search, account status/type filtering
+
+**Total: 58 tests — all passing ✅**
+

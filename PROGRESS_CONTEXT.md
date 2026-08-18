@@ -287,6 +287,41 @@ OK (46 tests)   Time: 30.639s
 
 ---
 
+## 📅 Stage 13 — Audit Logging (August 18, 2026)
+
+### Goal
+Implement audit logging system to record critical security, authentication, account, and financial actions.
+
+### Key Changes
+- Created `sql/stage13_14_migration.sql` with `audit_logs` table schema
+- Built `src/model/AuditLog.java` representation
+- Built `src/dao/AuditLogDAO.java` with PreparedStatement insert and paginated retrieval
+- Built `src/service/AuditLogService.java` to centralize logging calls
+- Integrated event logging in `LoginMenu`, `RegistrationMenu`, `CustomerMenu`, and `AdminMenu`
+- Created Admin Audit Log Viewer (Option 8) in `AdminMenu`
+
+---
+
+## 📅 Stage 14 — Search, Filtering & Pagination (August 18, 2026)
+
+### Goal
+Implement database-level pagination, multi-field searching, and filtering with database performance indexes.
+
+### Key Changes
+- Added B-tree performance indexes in `sql/stage13_14_migration.sql`
+- Built reusable generic model `src/model/PageResult.java`
+- Added SQL pagination (`LIMIT ? OFFSET ?`) and filtering in `TransactionDAO`, `AdminDAO`, and `AuditLogDAO`
+- Interactive CLI pagination controls (`[N] Next`, `[P] Previous`, `[F] Filter`, `[C] Clear`, `[B] Back`) in `CustomerMenu` and `AdminMenu`
+- Created JUnit tests: `AuditLogServiceTest`, `PaginationTest`, `TransactionSearchTest`, `AdminSearchTest`
+
+### Updated Test Suite Execution
+```
+JUnit version 4.13.2
+OK (61 tests)   Time: 34.692s
+```
+
+---
+
 ## 📊 Overall Progress Tracker (Updated)
 
 | Stage | Description | Status | Date |
@@ -302,4 +337,7 @@ OK (46 tests)   Time: 30.639s
 | 9 | Admin Module | ✅ Complete | — |
 | 10 | Code Polish, Documentation, README | ✅ Complete | — |
 | 11 | Security: BCrypt Hashing, SQL Injection Review | ✅ Complete | August 18, 2026 |
-| 12 | JUnit Testing (46 tests, all passing) | ✅ Complete | August 18, 2026 |
+| 12 | JUnit Testing (Initial Suite) | ✅ Complete | August 18, 2026 |
+| 13 | Audit Logging System | ✅ Complete | August 18, 2026 |
+| 14 | Search, Filtering & Pagination (61 tests total) | ✅ Complete | August 18, 2026 |
+

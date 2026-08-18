@@ -5,6 +5,7 @@ import exception.AccountFrozenException;
 import exception.InsufficientFundsException;
 import exception.InvalidAccountException;
 
+import model.PageResult;
 import model.Transaction;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -509,5 +510,118 @@ public class TransactionDAO {
         }
 
         return miniStatement;
+    }
+
+    // --------------------------------------------------
+    // Method 7: Paginated & Filtered Transaction History (Stage 14)
+    // --------------------------------------------------
+    /**
+     * Fetches paginated and filtered transactions associated with a given account (or all accounts if accountNo <= 0).
+     *
+     * Supports filtering by:
+     *   - transactionType ("DEPOSIT", "WITHDRAWAL", "TRANSFER", or null/ALL)
+     *   - minAmount / maxAmount range
+     *   - startDate / endDate (YYYY-MM-DD string format)
+     *
+     * @param accountNo    account number to query (or 0 for all accounts)
+     * @param page         1-indexed page number
+     * @param pageSize     number of records per page
+     * @param typeFilter   transaction type filter
+     * @param minAmount    minimum transaction amount filter
+     * @param maxAmount    maximum transaction amount filter
+     * @param startDate    start date filter (YYYY-MM-DD)
+     * @param endDate      end date filter (YYYY-MM-DD)
+     * @return PageResult of matching Transaction records
+     */
+    public PageResult<Transaction> getPaginatedTransactionsForAccount(long accountNo, int page, int pageSize,
+                                                                      String typeFilter, Double minAmount,
+                                                                      Double maxAmount, String startDate, String endDate) {
+        int validPage     = Math.max(1, page);
+        int validPageSize = Math.max(1, pageSize);
+        int offset        = (validPage - 1) * validPageSize;
+
+        StringBuilder whereClause = new StringBuilder(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+
+        if (accountNo > 0) {
+            whereClause.append(" AND (from_account = ? OR to_account = ?)");
+            params.add(accountNo);
+            params.add(accountNo);
+        }
+
+        if (typeFilter != null && !typeFilter.trim().isEmpty() && !typeFilter.equalsIgnoreCase("ALL")) {
+            whereClause.append(" AND transaction_type = ?");
+            params.add(typeFilter.trim().toUpperCase());
+        }
+
+        if (minAmount != null && minAmount >= 0) {
+            whereClause.append(" AND amount >= ?");
+            params.add(minAmount);
+        }
+
+        if (maxAmount != null && maxAmount >= 0) {
+            whereClause.append(" AND amount <= ?");
+            params.add(maxAmount);
+        }
+
+        if (startDate != null && !startDate.trim().isEmpty()) {
+            whereClause.append(" AND transaction_time >= ?");
+            params.add(startDate.trim() + " 00:00:00");
+        }
+
+        if (endDate != null && !endDate.trim().isEmpty()) {
+            whereClause.append(" AND transaction_time <= ?");
+            params.add(endDate.trim() + " 23:59:59");
+        }
+
+        String countSql  = "SELECT COUNT(*) FROM transactions" + whereClause;
+        String selectSql = "SELECT * FROM transactions" + whereClause +
+                           " ORDER BY transaction_time DESC, transaction_id DESC LIMIT ? OFFSET ?";
+
+        long totalRecords = 0;
+        List<Transaction> transactions = new ArrayList<>();
+
+        try (Connection conn = DBConnection.getConnection()) {
+
+            try (PreparedStatement countStmt = conn.prepareStatement(countSql)) {
+                for (int i = 0; i < params.size(); i++) {
+                    countStmt.setObject(i + 1, params.get(i));
+                }
+                try (ResultSet rs = countStmt.executeQuery()) {
+                    if (rs.next()) {
+                        totalRecords = rs.getLong(1);
+                    }
+                }
+            }
+
+            try (PreparedStatement selectStmt = conn.prepareStatement(selectSql)) {
+                int paramIdx = 1;
+                for (Object p : params) {
+                    selectStmt.setObject(paramIdx++, p);
+                }
+                selectStmt.setInt(paramIdx++, validPageSize);
+                selectStmt.setInt(paramIdx, offset);
+
+                try (ResultSet rs = selectStmt.executeQuery()) {
+                    while (rs.next()) {
+                        Transaction tx = new Transaction(
+                            rs.getInt("transaction_id"),
+                            rs.getLong("from_account"),
+                            rs.getLong("to_account"),
+                            rs.getString("transaction_type"),
+                            rs.getDouble("amount"),
+                            rs.getString("transaction_time"),
+                            rs.getString("remarks")
+                        );
+                        transactions.add(tx);
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("[TransactionDAO] Error fetching paginated transactions: " + e.getMessage());
+        }
+
+        return new PageResult<>(transactions, validPage, validPageSize, totalRecords);
     }
 }

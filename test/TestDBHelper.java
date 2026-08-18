@@ -57,7 +57,16 @@ public class TestDBHelper {
                 pstmt.executeUpdate();
             }
 
-            // Step 2: Delete test accounts
+            // Step 2: Delete audit logs referencing test customers/usernames
+            String deleteTestAuditSql = "DELETE FROM audit_logs WHERE username LIKE ? OR user_id IN " +
+                                        "(SELECT customer_id FROM customers WHERE email LIKE ?)";
+            try (PreparedStatement pstmt = conn.prepareStatement(deleteTestAuditSql)) {
+                pstmt.setString(1, "%" + TEST_EMAIL_DOMAIN);
+                pstmt.setString(2, "%" + TEST_EMAIL_DOMAIN);
+                pstmt.executeUpdate();
+            }
+
+            // Step 3: Delete test accounts
             String deleteTestAccsSql =
                 "DELETE FROM accounts WHERE customer_id IN " +
                 "(SELECT customer_id FROM customers WHERE email LIKE ?)";
@@ -66,7 +75,7 @@ public class TestDBHelper {
                 pstmt.executeUpdate();
             }
 
-            // Step 3: Delete test customers
+            // Step 4: Delete test customers
             String deleteTestCustSql = "DELETE FROM customers WHERE email LIKE ?";
             try (PreparedStatement pstmt = conn.prepareStatement(deleteTestCustSql)) {
                 pstmt.setString(1, "%" + TEST_EMAIL_DOMAIN);

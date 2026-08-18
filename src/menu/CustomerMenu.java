@@ -7,7 +7,9 @@ import exception.InsufficientFundsException;
 import exception.InvalidAccountException;
 import model.Account;
 import model.Customer;
+import model.PageResult;
 import model.Transaction;
+import service.AuditLogService;
 
 import java.util.List;
 import java.util.Scanner;
@@ -29,9 +31,10 @@ import java.util.Scanner;
  */
 public class CustomerMenu {
 
-    // DAO instances — instantiated once and reused across all dashboard interactions
+    // DAO and Service instances
     private final AccountDAO     accountDAO     = new AccountDAO();
     private final TransactionDAO transactionDAO = new TransactionDAO();
+    private final AuditLogService auditLogService = new AuditLogService();
 
     /**
      * Displays the customer dashboard and handles user interaction.
@@ -65,6 +68,7 @@ public class CustomerMenu {
                     break;
                 case "6":
                     System.out.println("\nLogging out... Returning to Main Menu.\n");
+                    auditLogService.logSuccess(customer.getCustomerId(), customer.getEmail(), "LOGOUT", "Customer logged out");
                     loggedIn = false;
                     break;
                 default:
@@ -167,7 +171,14 @@ public class CustomerMenu {
             "ACTIVE"
         );
 
-        accountDAO.createAccount(newAccount);
+        boolean success = accountDAO.createAccount(newAccount);
+        if (success) {
+            auditLogService.logSuccess(customer.getCustomerId(), customer.getEmail(), "ACCOUNT_CREATED",
+                String.format("Opened %s account with initial deposit Rs. %,.2f", accountType, initialDeposit));
+        } else {
+            auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "ACCOUNT_CREATED",
+                "Failed to open " + accountType + " account");
+        }
     }
 
     // --------------------------------------------------
@@ -263,6 +274,9 @@ public class CustomerMenu {
                 // Step 6: Fetch the refreshed balance from the DB to confirm
                 double newBalance = transactionDAO.getUpdatedBalance(accountNo);
 
+                auditLogService.logSuccess(customer.getCustomerId(), customer.getEmail(), "DEPOSIT",
+                    String.format("Deposited Rs. %,.2f into account #%d", depositAmount, accountNo));
+
                 System.out.println("\n==========================================");
                 System.out.println("  ✓ Deposit Successful!");
                 System.out.println("==========================================");
@@ -272,9 +286,15 @@ public class CustomerMenu {
                     System.out.printf("  Updated Balance   : Rs. %,.2f%n", newBalance);
                 }
                 System.out.println("==========================================\n");
+            } else {
+                auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "DEPOSIT",
+                    String.format("Deposit failed for account #%d", accountNo));
             }
             // If deposit failed, TransactionDAO already printed the error message.
         } catch (AccountFrozenException e) {
+            auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "DEPOSIT",
+                String.format("Deposit failed on account #%d: Account frozen/closed", accountNo));
+
             System.out.println("\n==========================================");
             System.out.println("  [!] Deposit Failed: Account is frozen/closed.");
             System.out.println("==========================================");
@@ -377,6 +397,9 @@ public class CustomerMenu {
                 // Step 6: Fetch the refreshed balance from the DB to confirm
                 double newBalance = transactionDAO.getUpdatedBalance(accountNo);
 
+                auditLogService.logSuccess(customer.getCustomerId(), customer.getEmail(), "WITHDRAWAL",
+                    String.format("Withdrew Rs. %,.2f from account #%d", withdrawAmount, accountNo));
+
                 System.out.println("\n==========================================");
                 System.out.println("  ✓ Withdrawal Successful!");
                 System.out.println("==========================================");
@@ -386,8 +409,14 @@ public class CustomerMenu {
                     System.out.printf("  Updated Balance   : Rs. %,.2f%n", newBalance);
                 }
                 System.out.println("==========================================\n");
+            } else {
+                auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "WITHDRAWAL",
+                    String.format("Withdrawal failed for account #%d", accountNo));
             }
         } catch (InsufficientFundsException e) {
+            auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "WITHDRAWAL",
+                String.format("Withdrawal failed on account #%d: Insufficient funds", accountNo));
+
             // Handle the custom exception by showing a descriptive message
             System.out.println("\n==========================================");
             System.out.println("  [!] Withdrawal Failed: Insufficient funds.");
@@ -396,6 +425,9 @@ public class CustomerMenu {
             System.out.printf( "  Available : Rs. %,.2f%n", e.getAvailableBalance());
             System.out.println("==========================================\n");
         } catch (AccountFrozenException e) {
+            auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "WITHDRAWAL",
+                String.format("Withdrawal failed on account #%d: Account frozen/closed", accountNo));
+
             System.out.println("\n==========================================");
             System.out.println("  [!] Withdrawal Failed: Account is frozen/closed.");
             System.out.println("==========================================");
@@ -523,6 +555,9 @@ public class CustomerMenu {
                 // Fetch the refreshed balance of the source account to confirm
                 double newBalance = transactionDAO.getUpdatedBalance(fromAccountNo);
 
+                auditLogService.logSuccess(customer.getCustomerId(), customer.getEmail(), "TRANSFER",
+                    String.format("Transferred Rs. %,.2f from #%d to #%d", transferAmount, fromAccountNo, toAccountNo));
+
                 System.out.println("\n==========================================");
                 System.out.println("  ✓ Fund Transfer Successful!");
                 System.out.println("==========================================");
@@ -533,8 +568,14 @@ public class CustomerMenu {
                     System.out.printf("  Updated Balance    : Rs. %,.2f%n", newBalance);
                 }
                 System.out.println("==========================================\n");
+            } else {
+                auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "TRANSFER",
+                    String.format("Transfer failed from #%d to #%d", fromAccountNo, toAccountNo));
             }
         } catch (InsufficientFundsException e) {
+            auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "TRANSFER",
+                String.format("Transfer failed from #%d: Insufficient funds", fromAccountNo));
+
             System.out.println("\n==========================================");
             System.out.println("  [!] Transfer Failed: Insufficient funds.");
             System.out.println("==========================================");
@@ -542,12 +583,18 @@ public class CustomerMenu {
             System.out.printf( "  Available : Rs. %,.2f%n", e.getAvailableBalance());
             System.out.println("==========================================\n");
         } catch (InvalidAccountException e) {
+            auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "TRANSFER",
+                String.format("Transfer failed from #%d: Invalid destination account #%d", fromAccountNo, toAccountNo));
+
             System.out.println("\n==========================================");
             System.out.println("  [!] Transfer Failed: Invalid account details.");
             System.out.println("==========================================");
             System.out.println("  Reason    : " + e.getMessage());
             System.out.println("==========================================\n");
         } catch (AccountFrozenException e) {
+            auditLogService.logFailure(customer.getCustomerId(), customer.getEmail(), "TRANSFER",
+                String.format("Transfer failed from #%d: Account frozen/closed", fromAccountNo));
+
             System.out.println("\n==========================================");
             System.out.println("  [!] Transfer Failed: Account is frozen/closed.");
             System.out.println("==========================================");
@@ -618,45 +665,101 @@ public class CustomerMenu {
         Account selectedAccount = accounts.get(selectedIndex);
         long accountNo = selectedAccount.getAccountNo();
 
-        // Step 4: Fetch statement from DAO
-        List<Transaction> statement = transactionDAO.getMiniStatement(accountNo);
+        // Stage 14 — Paginated and Filtered Transaction Viewer
+        int page = 1;
+        int pageSize = 5;
+        String typeFilter = null;
+        Double minAmt = null;
+        Double maxAmt = null;
 
-        if (statement.isEmpty()) {
-            System.out.println("\n  No transactions recorded for this account.\n");
-            return;
-        }
+        boolean viewing = true;
+        while (viewing) {
+            PageResult<Transaction> pageResult = transactionDAO.getPaginatedTransactionsForAccount(
+                accountNo, page, pageSize, typeFilter, minAmt, maxAmt, null, null
+            );
 
-        // Step 5: Format and display the statement
-        System.out.println("\n====================================================================================================");
-        System.out.printf("  LATEST TRANSACTIONS FOR ACCOUNT: %d%n", accountNo);
-        System.out.println("====================================================================================================");
-        System.out.printf("  %-6s | %-19s | %-12s | %-14s | %-30s%n",
-                "TX ID", "Date & Time", "Type", "Amount", "Remarks");
-        System.out.println("  --------------------------------------------------------------------------------------------------");
+            System.out.println("\n====================================================================================================");
+            System.out.printf("  TRANSACTION HISTORY FOR ACCOUNT: %d  (Page %d of %d, Total: %d)%n",
+                    accountNo, pageResult.getCurrentPage(), Math.max(1, pageResult.getTotalPages()), pageResult.getTotalRecords());
+            if (typeFilter != null || minAmt != null || maxAmt != null) {
+                System.out.printf("  [Active Filters -> Type: %s | Min: %s | Max: %s]%n",
+                        typeFilter == null ? "ALL" : typeFilter,
+                        minAmt == null ? "None" : String.format("Rs. %,.2f", minAmt),
+                        maxAmt == null ? "None" : String.format("Rs. %,.2f", maxAmt));
+            }
+            System.out.println("====================================================================================================");
 
-        for (Transaction tx : statement) {
-            // Determine transaction details depending on deposit/withdrawal/transfer
-            String type = tx.getTransactionType();
-            String amountStr = String.format("Rs. %,.2f", tx.getAmount());
-            
-            // Format a descriptive remark if from/to accounts are involved
-            String description = tx.getRemarks();
-            if (type.equals("TRANSFER")) {
-                if (tx.getFromAccount() == accountNo) {
-                    description = String.format("Transfer to Acc: %d (%s)", tx.getToAccount(), tx.getRemarks());
-                } else if (tx.getToAccount() == accountNo) {
-                    description = String.format("Transfer from Acc: %d (%s)", tx.getFromAccount(), tx.getRemarks());
+            if (pageResult.getRecords().isEmpty()) {
+                System.out.println("  No matching transactions found.\n");
+            } else {
+                System.out.printf("  %-6s | %-19s | %-12s | %-14s | %-30s%n",
+                        "TX ID", "Date & Time", "Type", "Amount", "Remarks");
+                System.out.println("  --------------------------------------------------------------------------------------------------");
+
+                for (Transaction tx : pageResult.getRecords()) {
+                    String type = tx.getTransactionType();
+                    String amountStr = String.format("Rs. %,.2f", tx.getAmount());
+                    String description = tx.getRemarks();
+
+                    if (type.equals("TRANSFER")) {
+                        if (tx.getFromAccount() == accountNo) {
+                            description = String.format("Transfer to Acc: %d (%s)", tx.getToAccount(), tx.getRemarks());
+                        } else if (tx.getToAccount() == accountNo) {
+                            description = String.format("Transfer from Acc: %d (%s)", tx.getFromAccount(), tx.getRemarks());
+                        }
+                    }
+
+                    System.out.printf("  %-6d | %-19s | %-12s | %-14s | %-30s%n",
+                            tx.getTransactionId(),
+                            tx.getTransactionTime(),
+                            type,
+                            amountStr,
+                            description);
                 }
             }
+            System.out.println("====================================================================================================");
+            System.out.println("  Controls: [N] Next Page | [P] Previous Page | [F] Apply Filter | [C] Clear Filter | [B] Back");
+            System.out.print("  Choice: ");
+            String action = scanner.nextLine().trim().toUpperCase();
 
-            System.out.printf("  %-6d | %-19s | %-12s | %-14s | %-30s%n",
-                    tx.getTransactionId(),
-                    tx.getTransactionTime(),
-                    type,
-                    amountStr,
-                    description);
+            switch (action) {
+                case "N":
+                    if (pageResult.hasNext()) page++;
+                    else System.out.println("  [!] Already on the last page.");
+                    break;
+                case "P":
+                    if (pageResult.hasPrevious()) page--;
+                    else System.out.println("  [!] Already on the first page.");
+                    break;
+                case "F":
+                    System.out.print("  Enter type filter (DEPOSIT/WITHDRAWAL/TRANSFER or ALL): ");
+                    String tf = scanner.nextLine().trim();
+                    typeFilter = (tf.isEmpty() || tf.equalsIgnoreCase("ALL")) ? null : tf;
+
+                    System.out.print("  Enter min amount (or press Enter to skip): ");
+                    String minStr = scanner.nextLine().trim();
+                    try { minAmt = minStr.isEmpty() ? null : Double.parseDouble(minStr); } catch (Exception e) { minAmt = null; }
+
+                    System.out.print("  Enter max amount (or press Enter to skip): ");
+                    String maxStr = scanner.nextLine().trim();
+                    try { maxAmt = maxStr.isEmpty() ? null : Double.parseDouble(maxStr); } catch (Exception e) { maxAmt = null; }
+
+                    page = 1; // Reset to first page on filter change
+                    break;
+                case "C":
+                    typeFilter = null;
+                    minAmt = null;
+                    maxAmt = null;
+                    page = 1;
+                    System.out.println("  ✓ Filters cleared.");
+                    break;
+                case "B":
+                    viewing = false;
+                    break;
+                default:
+                    System.out.println("  [!] Invalid choice. Enter N, P, F, C, or B.");
+            }
         }
-        System.out.println("====================================================================================================\n");
     }
 
     // --------------------------------------------------

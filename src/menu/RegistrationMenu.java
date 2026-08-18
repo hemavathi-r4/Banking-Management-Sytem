@@ -2,6 +2,7 @@ package menu;
 
 import dao.CustomerDAO;
 import model.Customer;
+import service.AuditLogService;
 
 import java.util.Scanner;
 
@@ -22,15 +23,15 @@ import java.util.Scanner;
  */
 public class RegistrationMenu {
 
-    // We create one instance of CustomerDAO to use for database operations.
-    // This is created once and reused — no need to create a new one each time.
     private CustomerDAO customerDAO;
+    private AuditLogService auditLogService;
 
     /**
-     * Constructor — initializes the CustomerDAO.
+     * Constructor — initializes CustomerDAO and AuditLogService.
      */
     public RegistrationMenu() {
         this.customerDAO = new CustomerDAO();
+        this.auditLogService = new AuditLogService();
     }
 
     // --------------------------------------------------
@@ -108,6 +109,12 @@ public class RegistrationMenu {
 
         // Call the DAO to save the customer to the database.
         // The DAO handles duplicate checks and SQL operations.
-        customerDAO.registerCustomer(newCustomer);
+        boolean success = customerDAO.registerCustomer(newCustomer);
+
+        if (success) {
+            auditLogService.logSuccess(null, email, "CUSTOMER_REGISTERED", "New customer registered: " + name);
+        } else {
+            auditLogService.logFailure(null, email, "CUSTOMER_REGISTERED", "Customer registration failed for email: " + email);
+        }
     }
 }
