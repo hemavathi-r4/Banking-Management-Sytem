@@ -20,6 +20,8 @@ public class AdminMenu {
     private final AdminDAO        adminDAO        = new AdminDAO();
     private final TransactionDAO  transactionDAO  = new TransactionDAO();
     private final AuditLogService auditLogService = new AuditLogService();
+    // STAGE 17 — Reports sub-menu
+    private final ReportsMenu     reportsMenu     = new ReportsMenu();
 
     /**
      * Prompts the administrator for credentials and authenticates.
@@ -93,12 +95,17 @@ public class AdminMenu {
                     viewAuditLogs(scanner);
                     break;
                 case "9":
+                    // STAGE 17 — Banking Reports & Analytics
+                    auditLogService.logSuccess(null, adminUsername, "VIEW_REPORTS", "Admin accessed reports menu");
+                    reportsMenu.showReportsMenu(scanner);
+                    break;
+                case "10":
                     auditLogService.logSuccess(null, adminUsername, "LOGOUT", "Admin logged out");
                     System.out.println("\nLogging out... Returning to Main Menu.\n");
                     loggedIn = false;
                     break;
                 default:
-                    System.out.println("\n[!] Invalid choice. Please enter 1-9.\n");
+                    System.out.println("\n[!] Invalid choice. Please enter 1-10.\n");
             }
         }
     }
@@ -115,7 +122,8 @@ public class AdminMenu {
         System.out.println("  6. View All Transactions (Paginated)");
         System.out.println("  7. View Bank Statistics");
         System.out.println("  8. View System Audit Logs");
-        System.out.println("  9. Logout");
+        System.out.println("  9. Banking Reports & Analytics");  // Stage 17
+        System.out.println(" 10. Logout");
         System.out.println("------------------------------------------");
     }
 

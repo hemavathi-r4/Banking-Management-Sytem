@@ -38,14 +38,35 @@ import java.util.ArrayList;
  *   conn.setAutoCommit(false) — turns off auto-save after each statement.
  *   conn.commit()             — saves all pending statements permanently.
  *   conn.rollback()           — cancels all pending statements on error.
+ *
+ * STAGE 16 — CONCURRENT SAFETY UPGRADE (SELECT ... FOR UPDATE):
+ * ---------------------------------------------------------------
+ * Previous design had a TOCTOU (Time-of-Check Time-of-Use) race condition:
+ *   1. Thread A reads balance = 10,000 (sufficient for 8,000 withdrawal).
+ *   2. Thread B reads balance = 10,000 (sufficient for 8,000 withdrawal).
+ *   3. Both threads proceed — resulting balance = -6,000 (overdraft!).
+ *
+ * Fix: All balance/status checks are now moved INSIDE the JDBC transaction block
+ * using:  SELECT balance, status FROM accounts WHERE account_no = ? FOR UPDATE
+ *
+ * This acquires a row-level exclusive lock on the account row, forcing any
+ * concurrent transaction that also tries to lock the same row to WAIT until
+ * this transaction either commits or rolls back. This eliminates the race window.
+ *
+ * Isolation level set to READ_COMMITTED:
+ *   - Prevents dirty reads (reading uncommitted data from another transaction).
+ *   - Sufficient for row-level locking with FOR UPDATE — no need for SERIALIZABLE.
+ *   - Avoids unnecessary gap locks that REPEATABLE_READ or SERIALIZABLE would add.
  */
 public class TransactionDAO {
 
     // --------------------------------------------------
-    // Helper: Get the status of an account
+    // Helper: Get the status of an account (used externally)
     // --------------------------------------------------
     /**
      * Fetches the current status of the given account (ACTIVE, FROZEN, or CLOSED).
+     * NOTE: This method is used for lightweight status-only checks outside transactions.
+     * Inside money-movement transactions, we use SELECT ... FOR UPDATE instead.
      *
      * @param accountNo the account number to check
      * @return the status string, or null if not found
@@ -72,81 +93,90 @@ public class TransactionDAO {
     /**
      * Deposits the given amount into the specified account.
      *
-     * This method executes TWO SQL statements inside a single database transaction:
-     *   Step A: UPDATE accounts SET balance = balance + ? WHERE account_no = ?
-     *   Step B: INSERT INTO transactions (to_account, transaction_type, amount, remarks)
+     * This method executes the following SQL statements inside a single database transaction:
+     *   Step A: SELECT balance, status FROM accounts WHERE account_no = ? FOR UPDATE
+     *           (acquires row lock — prevents concurrent modification during this transaction)
+     *   Step B: UPDATE accounts SET balance = balance + ? WHERE account_no = ?
+     *   Step C: INSERT INTO transactions (to_account, transaction_type, amount, remarks)
      *           VALUES (?, 'DEPOSIT', ?, 'Self deposit')
      *
-     * If Step A succeeds but Step B fails, conn.rollback() reverses Step A.
-     * Both changes are only permanently saved when conn.commit() is called.
+     * STAGE 16 CHANGE: The status check is now done INSIDE the transaction using
+     * SELECT ... FOR UPDATE, which acquires a row-level lock. This prevents a
+     * concurrent withdrawal from reading the account status between our check and update.
      *
      * @param accountNo the account number to deposit into
      * @param amount    the amount to deposit
-     * @return true if both SQL statements succeeded and were committed, false otherwise
+     * @return true if all SQL statements succeeded and were committed, false otherwise
      * @throws AccountFrozenException if the account is not ACTIVE
      */
     public boolean depositAmount(long accountNo, double amount) throws AccountFrozenException {
 
-        // PRE-CHECK: Verify account is ACTIVE before proceeding
-        String status = getAccountStatus(accountNo);
-        if (status != null && !status.equals("ACTIVE")) {
-            throw new AccountFrozenException(accountNo, status);
-        }
+        String lockSql    = "SELECT balance, status FROM accounts WHERE account_no = ? FOR UPDATE";
+        String updateSql  = "UPDATE accounts SET balance = balance + ? WHERE account_no = ?";
+        String insertSql  = "INSERT INTO transactions (to_account, transaction_type, amount, remarks) " +
+                            "VALUES (?, 'DEPOSIT', ?, 'Self deposit')";
 
-        String updateSql = "UPDATE accounts SET balance = balance + ? WHERE account_no = ?";
-        String insertSql = "INSERT INTO transactions (to_account, transaction_type, amount, remarks) " +
-                           "VALUES (?, 'DEPOSIT', ?, 'Self deposit')";
-
-        // We need a single Connection object shared across both statements
-        // so both can be committed or rolled back together.
-        // We cannot use separate try-with-resources blocks for this — they would
-        // create separate connections, which can't be part of the same transaction.
         Connection conn = null;
 
         try {
             conn = DBConnection.getConnection();
 
-            // STEP 1: Turn off auto-commit
-            // By default, JDBC commits (saves) every SQL statement immediately.
-            // We disable this so we can control when to commit manually.
+            // STAGE 16: Set READ_COMMITTED isolation level.
+            // Prevents dirty reads while avoiding unnecessary gap locks.
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             conn.setAutoCommit(false);
 
-            // STEP 2: Update the account balance
-            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
-                updateStmt.setDouble(1, amount);
-                updateStmt.setLong(2, accountNo);
-
-                int rowsUpdated = updateStmt.executeUpdate();
-
-                if (rowsUpdated == 0) {
-                    // No rows were updated — the account number doesn't exist
-                    System.out.println("\n[ERROR] Account not found. Deposit aborted.\n");
-                    conn.rollback(); // Nothing to roll back, but good practice
-                    return false;
+            // STEP 1 (STAGE 16): Acquire row-level lock on account row.
+            // This SELECT ... FOR UPDATE will block any other transaction trying
+            // to lock or update this account row until we commit or rollback.
+            String status;
+            try (PreparedStatement lockStmt = conn.prepareStatement(lockSql)) {
+                lockStmt.setLong(1, accountNo);
+                try (ResultSet rs = lockStmt.executeQuery()) {
+                    if (!rs.next()) {
+                        System.out.println("\n[ERROR] Account not found. Deposit aborted.\n");
+                        conn.rollback();
+                        return false;
+                    }
+                    status = rs.getString("status");
                 }
             }
 
-            // STEP 3: Log the deposit to the transactions table
+            // STEP 2: Now that we hold the lock, check the status safely.
+            if (!"ACTIVE".equals(status)) {
+                conn.rollback();
+                throw new AccountFrozenException(accountNo, status);
+            }
+
+            // STEP 3: Update the account balance (row is still locked by our FOR UPDATE)
+            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                updateStmt.setDouble(1, amount);
+                updateStmt.setLong(2, accountNo);
+                updateStmt.executeUpdate();
+            }
+
+            // STEP 4: Log the deposit to the transactions table
             try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
                 insertStmt.setLong(1, accountNo);
                 insertStmt.setDouble(2, amount);
                 insertStmt.executeUpdate();
             }
 
-            // STEP 4: Commit — permanently save both changes to the database
+            // STEP 5: Commit — permanently save all changes and RELEASE the row lock
             conn.commit();
             return true;
 
+        } catch (AccountFrozenException e) {
+            // Re-throw the domain exception — the caller handles it
+            throw e;
+
         } catch (SQLException e) {
-            // Something went wrong — roll back any partial changes
             System.out.println("\n[ERROR] Deposit failed due to a database error.");
             System.out.println("        Details: " + e.getMessage());
             System.out.println("        Your balance has NOT been changed.\n");
 
             try {
-                if (conn != null) {
-                    conn.rollback(); // Undo any partial changes made before the error
-                }
+                if (conn != null) conn.rollback();
             } catch (SQLException rollbackEx) {
                 System.out.println("[ERROR] Rollback also failed: " + rollbackEx.getMessage());
             }
@@ -154,14 +184,10 @@ public class TransactionDAO {
             return false;
 
         } finally {
-            // STEP 5: Restore auto-commit and close the connection
-            // The 'finally' block always runs, whether the try succeeded or an exception was thrown.
-            // This ensures the connection is always cleaned up and auto-commit is restored
-            // so future operations on this connection behave normally.
             try {
                 if (conn != null) {
-                    conn.setAutoCommit(true); // Restore default behaviour
-                    conn.close();             // Return connection to the pool / close it
+                    conn.setAutoCommit(true);
+                    conn.close();
                 }
             } catch (SQLException closeEx) {
                 System.out.println("[ERROR] Could not close connection: " + closeEx.getMessage());
@@ -196,7 +222,6 @@ public class TransactionDAO {
 
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    // getDouble("balance") reads the DECIMAL(15,2) column as a Java double
                     return rs.getDouble("balance");
                 }
             }
@@ -205,8 +230,6 @@ public class TransactionDAO {
             System.out.println("[ERROR] Could not fetch updated balance: " + e.getMessage());
         }
 
-        // Return -1.0 as a sentinel value meaning "balance could not be fetched"
-        // The caller should check for this value before displaying it.
         return -1.0;
     }
 
@@ -216,61 +239,37 @@ public class TransactionDAO {
     /**
      * Withdraws the given amount from the specified account.
      *
-     * This method introduces a KEY DIFFERENCE from depositAmount():
-     * Before touching the database, it checks the account balance first.
-     * If funds are insufficient, it throws InsufficientFundsException —
-     * a custom checked exception — BEFORE any SQL runs. No rollback needed.
+     * STAGE 16 CHANGE — TOCTOU Race Condition Fixed:
+     * ------------------------------------------------
+     * Previously, balance and status were checked BEFORE opening the JDBC transaction:
+     *   getAccountStatus()    ← read-only, no lock
+     *   getUpdatedBalance()   ← read-only, no lock
+     *   ... [gap here where another thread can withdraw] ...
+     *   conn.setAutoCommit(false)
+     *   UPDATE balance ...
      *
-     * WHY throw an exception instead of returning false?
-     * - The method signature 'throws InsufficientFundsException' forces every caller
-     *   to explicitly handle this failure case at compile time.
-     * - The exception carries amountRequested and availableBalance fields, giving
-     *   the UI (CustomerMenu) rich data to display a helpful error message.
-     * - A plain 'return false' gives zero information about WHY it failed.
+     * Two concurrent withdrawals could both pass the balance check, then both
+     * decrement — causing an overdraft.
      *
-     * If funds ARE sufficient, this method executes TWO SQL statements atomically:
-     *   Step A: UPDATE accounts SET balance = balance - ? WHERE account_no = ?
-     *   Step B: INSERT INTO transactions (from_account, transaction_type, amount, remarks)
-     *           VALUES (?, 'WITHDRAWAL', ?, 'Self withdrawal')
-     *
-     * Note the key SQL difference vs. deposit:
-     *   DEPOSIT:    SET balance = balance + ?   (add to account)
-     *   WITHDRAWAL: SET balance = balance - ?   (subtract from account)
-     *   DEPOSIT logs to: to_account column (money came IN to the account)
-     *   WITHDRAWAL logs to: from_account column (money went OUT of the account)
+     * Now: All checks are done INSIDE the transaction using SELECT ... FOR UPDATE:
+     *   conn.setAutoCommit(false)
+     *   SELECT balance, status ... FOR UPDATE  ← acquires exclusive row lock
+     *   [check status → throw AccountFrozenException if needed]
+     *   [check balance → throw InsufficientFundsException if needed]
+     *   UPDATE balance ...
+     *   INSERT transaction log ...
+     *   conn.commit()  ← row lock released here
      *
      * @param accountNo the account number to withdraw from
      * @param amount    the amount to withdraw
      * @return true if the withdrawal succeeded and was committed
      * @throws InsufficientFundsException if the account balance is less than the amount
+     * @throws AccountFrozenException     if the account is not ACTIVE
      */
-    public boolean withdrawAmount(long accountNo, double amount) throws InsufficientFundsException, AccountFrozenException {
+    public boolean withdrawAmount(long accountNo, double amount)
+            throws InsufficientFundsException, AccountFrozenException {
 
-        // PRE-CHECK: Verify account is ACTIVE before proceeding
-        String status = getAccountStatus(accountNo);
-        if (status != null && !status.equals("ACTIVE")) {
-            throw new AccountFrozenException(accountNo, status);
-        }
-
-        // ------------------------------------------
-        // PRE-CHECK: Verify sufficient funds BEFORE opening a transaction
-        // ------------------------------------------
-        // We fetch the balance first using getUpdatedBalance() — a separate,
-        // read-only SELECT query. This keeps the balance check outside the
-        // transaction scope, which is fine: if the balance check passes but
-        // the UPDATE fails, the rollback will undo it safely.
-        double currentBalance = getUpdatedBalance(accountNo);
-
-        if (currentBalance < amount) {
-            // Not enough funds — throw the custom exception.
-            // Execution jumps immediately to the catch block in CustomerMenu.
-            // No SQL has been run yet, so no rollback is needed.
-            throw new InsufficientFundsException(amount, currentBalance);
-        }
-
-        // ------------------------------------------
-        // SQL: Atomic balance decrement + transaction log
-        // ------------------------------------------
+        String lockSql   = "SELECT balance, status FROM accounts WHERE account_no = ? FOR UPDATE";
         String updateSql = "UPDATE accounts SET balance = balance - ? WHERE account_no = ?";
         String insertSql = "INSERT INTO transactions (from_account, transaction_type, amount, remarks) " +
                            "VALUES (?, 'WITHDRAWAL', ?, 'Self withdrawal')";
@@ -279,34 +278,59 @@ public class TransactionDAO {
 
         try {
             conn = DBConnection.getConnection();
-            conn.setAutoCommit(false); // Begin atomic transaction
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            conn.setAutoCommit(false);
 
-            // STEP 1: Decrement the account balance
-            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
-                updateStmt.setDouble(1, amount);
-                updateStmt.setLong(2, accountNo);
-
-                int rowsUpdated = updateStmt.executeUpdate();
-
-                if (rowsUpdated == 0) {
-                    System.out.println("\n[ERROR] Account not found. Withdrawal aborted.\n");
-                    conn.rollback();
-                    return false;
+            // STEP 1 (STAGE 16): Acquire exclusive row lock + read balance and status atomically.
+            // No other transaction can modify this row until we commit or rollback.
+            double currentBalance;
+            String status;
+            try (PreparedStatement lockStmt = conn.prepareStatement(lockSql)) {
+                lockStmt.setLong(1, accountNo);
+                try (ResultSet rs = lockStmt.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        System.out.println("\n[ERROR] Account not found. Withdrawal aborted.\n");
+                        return false;
+                    }
+                    currentBalance = rs.getDouble("balance");
+                    status         = rs.getString("status");
                 }
             }
 
-            // STEP 2: Log the withdrawal to the transactions table
-            // Note: 'from_account' is used here (not 'to_account') because
-            //       money is leaving the account, not arriving.
+            // STEP 2: Status check — inside the lock, so status cannot change concurrently.
+            if (!"ACTIVE".equals(status)) {
+                conn.rollback();
+                throw new AccountFrozenException(accountNo, status);
+            }
+
+            // STEP 3: Funds check — inside the lock, guaranteeing the balance we read is current.
+            if (currentBalance < amount) {
+                conn.rollback();
+                throw new InsufficientFundsException(amount, currentBalance);
+            }
+
+            // STEP 4: Decrement the account balance
+            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                updateStmt.setDouble(1, amount);
+                updateStmt.setLong(2, accountNo);
+                updateStmt.executeUpdate();
+            }
+
+            // STEP 5: Log the withdrawal to the transactions table
             try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
                 insertStmt.setLong(1, accountNo);
                 insertStmt.setDouble(2, amount);
                 insertStmt.executeUpdate();
             }
 
-            // STEP 3: Commit — permanently save both changes
+            // STEP 6: Commit — save changes and release row lock
             conn.commit();
             return true;
+
+        } catch (InsufficientFundsException | AccountFrozenException e) {
+            // Domain exceptions are re-thrown after rollback (already done above)
+            throw e;
 
         } catch (SQLException e) {
             System.out.println("\n[ERROR] Withdrawal failed due to a database error.");
@@ -322,7 +346,6 @@ public class TransactionDAO {
             return false;
 
         } finally {
-            // Always restore auto-commit and close — same pattern as depositAmount()
             try {
                 if (conn != null) {
                     conn.setAutoCommit(true);
@@ -363,13 +386,26 @@ public class TransactionDAO {
     /**
      * Transfers money from one account to another atomically.
      *
-     * This method runs THREE SQL statements inside a single database transaction:
-     *   Step A: UPDATE accounts SET balance = balance - ? WHERE account_no = ? (from account)
-     *   Step B: UPDATE accounts SET balance = balance + ? WHERE account_no = ? (to account)
-     *   Step C: INSERT INTO transactions (from_account, to_account, transaction_type, amount, remarks)
-     *           VALUES (?, ?, 'TRANSFER', ?, ?)
+     * STAGE 16 CHANGE — TOCTOU Race Condition Fixed:
+     * ------------------------------------------------
+     * All pre-checks (status, balance, account existence) are now moved INSIDE
+     * the JDBC transaction and performed via SELECT ... FOR UPDATE.
      *
-     * If any step fails, the transaction is rolled back and the balances remain unchanged.
+     * DEADLOCK PREVENTION via Consistent Lock Ordering:
+     * When two concurrent transfers involve the same two accounts in opposite directions,
+     * they can deadlock if they acquire locks in different orders:
+     *   Thread A locks account 1001, then waits for 1002.
+     *   Thread B locks account 1002, then waits for 1001. → DEADLOCK.
+     *
+     * Fix: Always lock the lower account_no first. By locking in a deterministic
+     * order (Math.min first, Math.max second), concurrent transfers can never deadlock.
+     *
+     * This method runs the following SQL statements inside a single database transaction:
+     *   Step A: Lock accounts in deterministic order using SELECT ... FOR UPDATE
+     *   Step B: Validate status, balance, and destination existence
+     *   Step C: UPDATE accounts SET balance = balance - ? WHERE account_no = ? (from)
+     *   Step D: UPDATE accounts SET balance = balance + ? WHERE account_no = ? (to)
+     *   Step E: INSERT INTO transactions (from_account, to_account, transaction_type, amount, remarks)
      *
      * @param fromAccountNo the source account number
      * @param toAccountNo   the destination account number
@@ -377,71 +413,126 @@ public class TransactionDAO {
      * @param remarks       custom remarks for the transfer
      * @return true if the transfer was successful
      * @throws InsufficientFundsException if the source account balance is less than the amount
-     * @throws InvalidAccountException     if the target account does not exist
+     * @throws InvalidAccountException    if the target account does not exist
+     * @throws AccountFrozenException     if the source account is not ACTIVE
      */
     public boolean transferAmount(long fromAccountNo, long toAccountNo, double amount, String remarks)
             throws InsufficientFundsException, InvalidAccountException, AccountFrozenException {
 
-        // 0. Pre-check: Verify source account is ACTIVE
-        String fromStatus = getAccountStatus(fromAccountNo);
-        if (fromStatus != null && !fromStatus.equals("ACTIVE")) {
-            throw new AccountFrozenException(fromAccountNo, fromStatus);
-        }
-
-        // 1. Validate destination account is not the same as source account
+        // Validate: source and destination cannot be the same account.
+        // Done outside the transaction — no DB access needed.
         if (fromAccountNo == toAccountNo) {
-            throw new InvalidAccountException(toAccountNo, "Destination account cannot be the same as the source account.");
+            throw new InvalidAccountException(toAccountNo,
+                "Destination account cannot be the same as the source account.");
         }
 
-        // 2. Pre-check: Verify source account has sufficient funds
-        double fromBalance = getUpdatedBalance(fromAccountNo);
-        if (fromBalance < amount) {
-            throw new InsufficientFundsException(amount, fromBalance);
-        }
+        // DEADLOCK PREVENTION: determine lock acquisition order.
+        // Always lock lower account_no first, higher second.
+        long firstLock  = Math.min(fromAccountNo, toAccountNo);
+        long secondLock = Math.max(fromAccountNo, toAccountNo);
 
-        // 3. Pre-check: Verify destination account exists
-        if (!accountExists(toAccountNo)) {
-            throw new InvalidAccountException(toAccountNo, "Destination account number " + toAccountNo + " does not exist.");
-        }
-
-        String debitSql = "UPDATE accounts SET balance = balance - ? WHERE account_no = ?";
+        String lockSql   = "SELECT account_no, balance, status FROM accounts WHERE account_no = ? FOR UPDATE";
+        String debitSql  = "UPDATE accounts SET balance = balance - ? WHERE account_no = ?";
         String creditSql = "UPDATE accounts SET balance = balance + ? WHERE account_no = ?";
-        String insertSql = "INSERT INTO transactions (from_account, to_account, transaction_type, amount, remarks) " +
+        String insertSql = "INSERT INTO transactions " +
+                           "(from_account, to_account, transaction_type, amount, remarks) " +
                            "VALUES (?, ?, 'TRANSFER', ?, ?)";
 
         Connection conn = null;
 
         try {
             conn = DBConnection.getConnection();
-            conn.setAutoCommit(false); // Begin transaction block
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            conn.setAutoCommit(false);
 
-            // STEP 1: Debit the source account
+            // STEP 1 (STAGE 16): Lock both account rows in deterministic order.
+            // Row 1: lower account_no
+            double fromBalance = -1;
+            String fromStatus  = null;
+            boolean toFound    = false;
+
+            try (PreparedStatement lockStmt = conn.prepareStatement(lockSql)) {
+                lockStmt.setLong(1, firstLock);
+                try (ResultSet rs = lockStmt.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        throw new InvalidAccountException(firstLock,
+                            "Account number " + firstLock + " does not exist.");
+                    }
+                    long lockedNo = rs.getLong("account_no");
+                    if (lockedNo == fromAccountNo) {
+                        fromBalance = rs.getDouble("balance");
+                        fromStatus  = rs.getString("status");
+                    } else {
+                        // firstLock is toAccountNo
+                        toFound = true;
+                    }
+                }
+            }
+
+            // Row 2: higher account_no
+            try (PreparedStatement lockStmt = conn.prepareStatement(lockSql)) {
+                lockStmt.setLong(1, secondLock);
+                try (ResultSet rs = lockStmt.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        throw new InvalidAccountException(secondLock,
+                            "Account number " + secondLock + " does not exist.");
+                    }
+                    long lockedNo = rs.getLong("account_no");
+                    if (lockedNo == fromAccountNo) {
+                        fromBalance = rs.getDouble("balance");
+                        fromStatus  = rs.getString("status");
+                    } else {
+                        toFound = true;
+                    }
+                }
+            }
+
+            // STEP 2: Validate source account status (inside lock)
+            if (fromStatus == null || !"ACTIVE".equals(fromStatus)) {
+                conn.rollback();
+                throw new AccountFrozenException(fromAccountNo,
+                    fromStatus != null ? fromStatus : "UNKNOWN");
+            }
+
+            // STEP 3: Validate source account has sufficient funds (inside lock)
+            if (fromBalance < amount) {
+                conn.rollback();
+                throw new InsufficientFundsException(amount, fromBalance);
+            }
+
+            // STEP 4: Debit the source account
             try (PreparedStatement debitStmt = conn.prepareStatement(debitSql)) {
                 debitStmt.setDouble(1, amount);
                 debitStmt.setLong(2, fromAccountNo);
                 debitStmt.executeUpdate();
             }
 
-            // STEP 2: Credit the destination account
+            // STEP 5: Credit the destination account
             try (PreparedStatement creditStmt = conn.prepareStatement(creditSql)) {
                 creditStmt.setDouble(1, amount);
                 creditStmt.setLong(2, toAccountNo);
                 creditStmt.executeUpdate();
             }
 
-            // STEP 3: Log the transaction
+            // STEP 6: Log the transaction record
             try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
                 insertStmt.setLong(1, fromAccountNo);
                 insertStmt.setLong(2, toAccountNo);
                 insertStmt.setDouble(3, amount);
-                // Default to 'Fund Transfer' if remarks are empty or null
-                insertStmt.setString(4, (remarks == null || remarks.trim().isEmpty()) ? "Fund Transfer" : remarks.trim());
+                insertStmt.setString(4, (remarks == null || remarks.trim().isEmpty())
+                    ? "Fund Transfer" : remarks.trim());
                 insertStmt.executeUpdate();
             }
 
-            // Commit transaction
+            // STEP 7: Commit — saves all changes and releases both row locks
             conn.commit();
             return true;
+
+        } catch (InsufficientFundsException | InvalidAccountException | AccountFrozenException e) {
+            // Domain exceptions are re-thrown after rollback (already done above)
+            throw e;
 
         } catch (SQLException e) {
             System.out.println("\n[ERROR] Fund transfer failed due to a database error.");
@@ -449,9 +540,7 @@ public class TransactionDAO {
             System.out.println("        No money has been moved.\n");
 
             try {
-                if (conn != null) {
-                    conn.rollback();
-                }
+                if (conn != null) conn.rollback();
             } catch (SQLException rollbackEx) {
                 System.out.println("[ERROR] Rollback failed: " + rollbackEx.getMessage());
             }

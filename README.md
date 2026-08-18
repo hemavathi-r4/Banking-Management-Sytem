@@ -16,7 +16,7 @@ The project is structured into modular layers spanning across functional require
 6. **Withdrawals with Custom Exceptions**: Safe withdrawals with instant validation of funds. Rejects operations on insufficient balance using custom exceptions.
 7. **Atomic Fund Transfers**: Facilitates transfers between customers. Runs balance debit, credit, and transaction logs inside an atomic SQL transaction block (commit/rollback).
 8. **Mini Statement generation**: Generates real-time reports of the last 5 transactions (deposits, withdrawals, and transfers).
-9. **Administrator Dashboard**: Includes tools to search, list, or delete customer accounts (cascading all records atomically), toggle account status (ACTIVE/FROZEN/CLOSED), view global bank metrics, and audit the entire ledger.
+9. **Administrator Dashboard**: Includes tools to search, list, or delete customer accounts (cascading all records atomically), toggle account status (ACTIVE/FROZEN/CLOSED), view global bank metrics, view audit logs, and inspect financial analytics reports.
 10. **Exception Enforcement & Polish**: System-wide hardening which blocks deposits, withdrawals, and transfers on FROZEN/CLOSED accounts and sanitizes user input formats.
 
 ---
@@ -26,6 +26,8 @@ The project is structured into modular layers spanning across functional require
 * **Language**: Java (JDK 8 or higher)
 * **Database**: MySQL Server (8.0+)
 * **Driver**: MySQL Connector/J driver (`mysql-connector-j-8.0.33.jar`)
+* **Security**: jBCrypt (`jbcrypt-0.4.jar`)
+* **Testing**: JUnit 4 (`junit-4.13.2.jar`, `hamcrest-core-1.3.jar`)
 * **Interface**: Interactive Command-Line Console
 
 ---
@@ -36,9 +38,15 @@ The project is structured into modular layers spanning across functional require
 BMS/
 ├── bin/                          # Compiled Java class files
 ├── lib/                          # External libraries
-│   └── mysql-connector-j-8.0.33.jar # JDBC Driver Dependency
+│   ├── mysql-connector-j-8.0.33.jar # JDBC Driver Dependency
+│   ├── jbcrypt-0.4.jar           # BCrypt password hashing library
+│   ├── junit-4.13.2.jar          # JUnit 4 testing framework
+│   └── hamcrest-core-1.3.jar     # Hamcrest matcher library
 ├── sql/                          # Database scripts
-│   └── bank_management.sql       # Database schema and setup script
+│   ├── bank_management.sql       # Database schema and setup script
+│   ├── stage11_migration.sql     # Security & BCrypt migration script
+│   ├── stage13_14_migration.sql  # Audit log & B-tree indexes migration script
+│   └── stage15_17_migration.sql  # Database constraints & composite indexes
 ├── src/                          # Source code
 │   ├── database/
 │   │   └── DBConnection.java     # JDBC Connection manager
@@ -51,18 +59,43 @@ BMS/
 │   │   ├── Customer.java         # Customer entity (extends User)
 │   │   ├── Admin.java            # Admin entity (extends User)
 │   │   ├── Account.java          # Account model mapping
-│   │   └── Transaction.java      # Transaction model mapping
+│   │   ├── Transaction.java      # Transaction model mapping
+│   │   ├── AuditLog.java         # Audit log entity
+│   │   ├── PageResult.java       # Generic container for pagination
+│   │   ├── BankingSummary.java   # Banking summary report DTO
+│   │   ├── TransactionSummaryRow.java # Transaction breakdown report DTO
+│   │   ├── AccountStatistics.java# Account status/type breakdown DTO
+│   │   └── TopAccountRow.java    # Top active account report DTO
 │   ├── dao/
 │   │   ├── CustomerDAO.java      # Customer DB queries
 │   │   ├── AccountDAO.java       # Account DB queries
-│   │   ├── AdminDAO.java         # Admin DB queries
-│   │   └── TransactionDAO.java   # Financial transaction operations (Atomic)
+│   │   ├── AdminDAO.java         # Admin DB queries & single-query statistics
+│   │   ├── AuditLogDAO.java      # Audit logging queries
+│   │   ├── TransactionDAO.java   # Financial transaction operations (FOR UPDATE row locking)
+│   │   └── ReportsDAO.java       # Analytical reporting queries (SQL Aggregations)
+│   ├── service/
+│   │   ├── AuditLogService.java  # Audit logging service layer
+│   │   └── ReportsService.java   # Banking report service layer & input validation
 │   ├── menu/
 │   │   ├── RegistrationMenu.java # User registration UI
 │   │   ├── LoginMenu.java        # User authentication UI
 │   │   ├── CustomerMenu.java     # Customer actions dashboard
-│   │   └── AdminMenu.java        # Admin actions dashboard
+│   │   ├── AdminMenu.java        # Admin actions dashboard
+│   │   └── ReportsMenu.java      # Admin analytics report UI
 │   └── Main.java                 # Entry point of application
+├── test/                         # JUnit 4 Test Suite
+│   ├── TestDBHelper.java         # Test database helper & isolation runner
+│   ├── PasswordUtilTest.java     # BCrypt hashing tests
+│   ├── CustomerDAOTest.java     # Customer DAO unit/integration tests
+│   ├── AccountDAOTest.java      # Account DAO unit/integration tests
+│   ├── TransactionDAOTest.java  # Transaction DAO tests
+│   ├── AuditLogServiceTest.java # Audit log service tests
+│   ├── PaginationTest.java       # Pagination unit tests
+│   ├── TransactionSearchTest.java# Paginated transaction query tests
+│   ├── AdminSearchTest.java      # Paginated customer/account query tests
+│   ├── TransactionRollbackTest.java # Atomicity & rollback safety tests
+│   └── ReportsDAOTest.java       # Reporting SQL query integration tests
+├── compile_and_run_tests.bat     # Test suite compile and execute runner
 ├── .gitignore                    # Git file exclusions
 ├── INTERVIEW_EXPLANATION.md       # 5-minute interview talking points
 └── README.md                     # Project documentation (this file)
@@ -70,222 +103,75 @@ BMS/
 
 ---
 
-## ⚙️ Setup & Installation
+## ⚡ Stage 15 — Database Optimization
 
-### 1. Database Configuration
-1. Open your MySQL client (CLI or Workbench).
-2. Execute the setup SQL script located in the `sql` directory:
-   ```sql
-   SOURCE sql/bank_management.sql;
-   ```
-   *This script automatically creates the database `bank_management` along with the tables `customers`, `accounts`, `transactions`, and `admins`.*
-
-3. Open [DBConnection.java](file:///c:/Users/Hemavathi/Desktop/BMS/src/database/DBConnection.java) and verify/update the database configuration constants:
-   ```java
-   private static final String URL      = "jdbc:mysql://localhost:3306/bank_management";
-   private static final String USERNAME = "root";
-   private static final String PASSWORD = "YOUR_PASSWORD"; // Update this with your MySQL password
-   ```
-
-### 2. Compilation
-Compile all Java source files into the `bin/` directory by referencing the JDBC library in the classpath:
-
-**On Windows (PowerShell / Command Prompt)**:
-```powershell
-javac -cp "lib/mysql-connector-j-8.0.33.jar" -d bin src/database/*.java src/model/*.java src/exception/*.java src/dao/*.java src/menu/*.java src/Main.java
-```
-
-### 3. Running the Project
-Execute the compiled `Main` class with the JDBC driver in the classpath:
-
-**On Windows (PowerShell / Command Prompt)**:
-```powershell
-java -cp "bin;lib/mysql-connector-j-8.0.33.jar" Main
-```
+* **Database Constraints**: `sql/stage15_17_migration.sql` adds strict SQL-level validation rules (`CHECK (balance >= 0)`, `CHECK (amount > 0)`, `CHECK (account_type IN ('SAVINGS','CURRENT'))`, and `CHECK (status IN ('ACTIVE','FROZEN','CLOSED'))`).
+* **Optimized Indexes**: Added column index `accounts(account_type)`, range index `transactions(amount)`, and composite index `transactions(transaction_type, transaction_time)` for optimized `GROUP BY` and date-range queries.
+* **Single-Query Statistics**: Refactored `AdminDAO.getBankStatistics()` to consolidate 6 separate database round-trips into a single `UNION ALL` aggregate query.
 
 ---
 
-## 🧩 OOP and Software Engineering Best Practices
+## 🔒 Stage 16 — Advanced Transaction Management & Race Condition Protection
 
-* **Encapsulation**: Used throughout entities (like `Customer`, `Account`, `Transaction`) by declaring fields `private` and exposing public getter/setter methods.
-* **Inheritance**: Implemented a core `User` model, from which `Customer` and `Admin` extend to share identity properties.
-* **DAO Design Pattern**: Decoupled domain business entities from SQL access layers (via `CustomerDAO`, `AccountDAO`, `AdminDAO`, `TransactionDAO`), keeping database work modular.
-* **Custom Checked Exceptions**: Defined `InsufficientFundsException`, `InvalidAccountException`, and `AccountFrozenException` to handle runtime operational blocks cleanly.
-* **Atomic Transactions**: Ensured money transfers and onboarding cleanups run within JDBC transaction boundaries (`setAutoCommit(false)`, `commit()`, and `rollback()`) to guarantee data integrity.
-* **Input Sanitization**: Validates email format patterns and digits/length checks for phone numbers prior to database ingestion.
+* **TOCTOU Race Condition Fixed**: Replaced pre-transaction balance checks with `SELECT balance, status FROM accounts WHERE account_no = ? FOR UPDATE` executed **inside** the JDBC transaction.
+* **Deterministic Lock Ordering**: In `transferAmount()`, account locks are acquired in order of `Math.min(fromAccount, toAccount)` then `Math.max(fromAccount, toAccount)`. This guarantees deadlock prevention during concurrent bi-directional transfers.
+* **Explicit Isolation Level**: Financial operations execute under `Connection.TRANSACTION_READ_COMMITTED` for reliable concurrency without unnecessary gap locking.
+* **Automated Rollback Testing**: `TransactionRollbackTest.java` verifies that failed withdrawals, frozen account attempts, and failed transfers leave both account balances completely untouched.
 
 ---
 
-## 🔒 Stage 11 — Security Upgrade
+## 📈 Stage 17 — Banking Reports & Analytics
 
-### Password Hashing (BCrypt)
+Admin dashboard includes **Banking Reports & Analytics** (Option 9) to generate SQL-aggregated financial reports:
 
-Passwords are **never stored as plain text**. Stage 11 introduced BCrypt-based password hashing:
-
-* **Library used**: `jbcrypt-0.4.jar` (Damien Miller's jBCrypt, placed in `lib/`)
-* **New utility**: `src/util/PasswordUtil.java` — wraps `BCrypt.hashpw()` and `BCrypt.checkpw()`
-* **Cost factor**: 12 (2¹² = 4096 hashing rounds — slow for attackers, imperceptible for users)
-* **Salt**: Generated automatically per password — same password produces a different hash each time
-
-**Registration flow (with hashing):**
-```
-User enters password → Validate → PasswordUtil.hashPassword() → Store hash in DB
-```
-
-**Login flow (with BCrypt verify):**
-```
-User enters password → Fetch stored hash by email → PasswordUtil.verifyPassword() → Authenticate
-```
-
-### SQL Injection Prevention
-
-All DAO classes already used `PreparedStatement` with `?` placeholders from Stages 1–10.
-No dynamic string concatenation exists in any database query. This was verified and confirmed during Stage 11.
-
-### Sensitive Data Handling
-
-* Plain-text passwords are **never logged** or exposed in error messages
-* Authentication errors always return a **generic message** (`"Invalid username or password."`) — whether the email doesn't exist or the password is wrong — to prevent user enumeration
-* Database error details are not forwarded to the user in authentication paths
-* Hardcoded DB credentials are confined to `DBConnection.java` (documented limitation)
-
-### Input Validation in Authentication
-
-* Empty email/password rejected immediately — no DB call made
-* Null inputs handled gracefully without `NullPointerException`
-* Admin login rejects empty username/password before querying
-
-### Database Changes
-
-Run `sql/stage11_migration.sql` after deploying Stage 11 to:
-1. Update the default admin password to a BCrypt hash of `admin123`
-2. Confirm `VARCHAR(255)` column widths (already sufficient for 60-char BCrypt hashes)
-
-> **Note**: Existing plain-text customer passwords cannot be automatically migrated (BCrypt is one-way). See the migration script for options.
+1. **Overall Banking Summary**: Comprehensive snapshot of total customers, accounts, total bank balance, average account balance, account status breakdown, and deposit/withdrawal/transfer volume totals.
+2. **Transaction Type Summary**: Grouped breakdown of total count, total monetary sum, average, min, and max amounts for `DEPOSIT`, `WITHDRAWAL`, and `TRANSFER`.
+3. **Daily Transaction Report**: Per-day breakdown of transaction counts and volume over customizable date ranges (`YYYY-MM-DD`).
+4. **Monthly Transaction Report**: Monthly breakdown of banking activity filtered by year (`YYYY-MM`).
+5. **Account Statistics**: Account distribution breakdown by `account_type` and `status` with balance ranges.
+6. **Top Active Accounts**: Ranking of the top active bank accounts by transaction volume and activity count.
 
 ---
 
-## 🧪 Stage 12 — JUnit Testing
+## 🧪 Comprehensive JUnit Test Suite (Stages 12–17)
 
-JUnit 4 test coverage was added for all key business logic in the service/DAO layer.
+Run `compile_and_run_tests.bat` to execute the full test suite:
 
-### Test Setup
+| Test Class | Description | Tests | Status |
+|------------|-------------|-------|--------|
+| `PasswordUtilTest` | BCrypt password hashing & salt verification | 8 | PASS |
+| `CustomerDAOTest` | Customer registration, duplicate check & login | 9 | PASS |
+| `AccountDAOTest` | Account creation & customer account lookup | 6 | PASS |
+| `TransactionDAOTest` | Deposit, withdrawal, transfer & exception checks | 23 | PASS |
+| `AuditLogServiceTest` | Audit logging, success/failure tracking | 4 | PASS |
+| `PaginationTest` | `PageResult` container & page calculation math | 5 | PASS |
+| `TransactionSearchTest` | Paginated transaction filtering & date range checks | 3 | PASS |
+| `AdminSearchTest` | Paginated customer/account search queries | 3 | PASS |
+| `TransactionRollbackTest` | Atomicity, rollback safety & overdraft protection | 8 | PASS |
+| `ReportsDAOTest` | Banking reports SQL queries & aggregation validation | 12 | PASS |
 
-**Dependencies added** (in `lib/`):
-* `junit-4.13.2.jar` — JUnit 4 testing framework
-* `hamcrest-core-1.3.jar` — Required by JUnit 4
+**Total: 81 tests — 100% Passing (0 failures, 0 errors) ✅**
 
-**Test approach**: Tests run against the **real MySQL database** using isolated test data that is created before each test and cleaned up after. No mock framework is needed.
+---
 
-### Test Classes
+## ⚙️ Setup & Execution
 
-| File | Tests |
-|------|-------|
-| `test/PasswordUtilTest.java` | 8 tests — BCrypt hash generation, salt randomness, correct/wrong/null/empty verification |
-| `test/CustomerDAOTest.java` | 9 tests — Registration, duplicate detection, hash storage, login success/failure/empty |
-| `test/AccountDAOTest.java` | 6 tests — Account creation (SAVINGS/CURRENT), retrieval, empty-list behavior |
-| `test/TransactionDAOTest.java` | 23 tests — Deposit/withdrawal/transfer success, balance verification, exception assertions |
+### 1. Execute Database Migration Scripts
+Run the migration SQL scripts in sequence inside MySQL:
+```sql
+SOURCE sql/bank_management.sql;
+SOURCE sql/stage11_migration.sql;
+SOURCE sql/stage13_14_migration.sql;
+SOURCE sql/stage15_17_migration.sql;
+```
 
-**Total: 46 tests — all passing ✅**
-
-### Running the Tests
-
+### 2. Run Application
 ```powershell
-# Compile + run all tests
+javac -cp "lib/mysql-connector-j-8.0.33.jar;lib/jbcrypt-0.4.jar" -d bin src/database/*.java src/model/*.java src/exception/*.java src/util/*.java src/dao/*.java src/service/*.java src/menu/*.java src/Main.java
+java -cp "bin;lib/mysql-connector-j-8.0.33.jar;lib/jbcrypt-0.4.jar" Main
+```
+
+### 3. Run Test Suite
+```powershell
 compile_and_run_tests.bat
-
-# Or manually:
-javac -cp "lib\mysql-connector-j-8.0.33.jar;lib\jbcrypt-0.4.jar;lib\junit-4.13.2.jar;lib\hamcrest-core-1.3.jar" -d bin src\database\*.java src\model\*.java src\exception\*.java src\util\*.java src\dao\*.java src\menu\*.java src\Main.java
-javac -cp "bin;lib\mysql-connector-j-8.0.33.jar;lib\jbcrypt-0.4.jar;lib\junit-4.13.2.jar;lib\hamcrest-core-1.3.jar" -d bin test\TestDBHelper.java test\PasswordUtilTest.java test\CustomerDAOTest.java test\AccountDAOTest.java test\TransactionDAOTest.java
-java -cp "bin;lib\mysql-connector-j-8.0.33.jar;lib\jbcrypt-0.4.jar;lib\junit-4.13.2.jar;lib\hamcrest-core-1.3.jar" org.junit.runner.JUnitCore PasswordUtilTest CustomerDAOTest AccountDAOTest TransactionDAOTest
 ```
-
-### Important Test Scenarios
-
-| Scenario | Method |
-|----------|--------|
-| Balance increases correctly after deposit | `shouldIncreaseBalanceAfterDeposit()` |
-| Balance decreases correctly after withdrawal | `shouldDecreaseBalanceAfterWithdrawal()` |
-| InsufficientFundsException thrown on overdraft | `shouldRejectWithdrawalWhenBalanceIsInsufficient()` |
-| Sender/receiver balances both correct after transfer | `shouldDecreaseSenderBalanceAfterTransfer()` + `shouldIncreaseReceiverBalanceAfterTransfer()` |
-| Self-transfer rejected | `shouldRejectTransferToSameAccount()` |
-| Frozen account blocks all operations | `shouldThrowAccountFrozenExceptionOnDeposit/Withdrawal/Transfer` |
-| Wrong password rejected | `shouldRejectLoginWithWrongPassword()` |
-| BCrypt hash stored on registration | `shouldHashPasswordOnRegistration()` |
-
----
-
-## 📜 Stage 13 — Audit Logging
-
-An audit logging system records important security, authentication, account, and financial operations to maintain an immutable audit trail for compliance, traceability, and operational accountability.
-
-### Audit Log Schema & Model
-
-* **Table**: `audit_logs` (`sql/stage13_14_migration.sql`)
-* **Model**: `src/model/AuditLog.java`
-* **DAO & Service**: `src/dao/AuditLogDAO.java` and `src/service/AuditLogService.java`
-* **Columns**: `log_id`, `user_id` (FK), `username`, `action`, `description`, `status` (`SUCCESS`/`FAILURE`), `timestamp`
-
-### Operations Logged
-
-| Category | Actions Logged | Details |
-|----------|---------------|---------|
-| **Authentication** | `LOGIN`, `LOGOUT` | Logs user/admin login attempts (`SUCCESS`/`FAILURE`) and logout events. Plain-text passwords and hashes are **never** logged. |
-| **Account Operations** | `ACCOUNT_CREATED`, `ACCOUNT_FROZEN`, `ACCOUNT_ACTIVATED` | Logs account creation by customers and account freeze/unfreeze actions by admins. |
-| **Banking Operations** | `DEPOSIT`, `WITHDRAWAL`, `TRANSFER` | Logs deposit, withdrawal, and fund transfer operations (`SUCCESS`/`FAILURE`) with account numbers and amounts. |
-| **Admin Operations** | `CUSTOMER_DELETED` | Logs administrative deletion of customer accounts. |
-
-### Admin Audit Log Viewer
-
-Admins can view system audit logs directly from the Admin Dashboard (**Option 8**):
-* Filter logs by User ID / Username, Action type (`LOGIN`, `DEPOSIT`, `TRANSFER`, etc.), or Status (`SUCCESS`/`FAILURE`)
-* Interactive pagination (`[N] Next`, `[P] Previous`, `[F] Filter`, `[C] Clear Filters`, `[B] Back`)
-* Role-restricted: Customers cannot view system audit logs.
-
----
-
-## 🔍 Stage 14 — Search, Filtering & Pagination
-
-Database-level searching, multi-criteria filtering, and SQL pagination were added to handle large volumes of data efficiently without loading full tables into Java memory.
-
-### SQL-Level Pagination (`LIMIT ? OFFSET ?`)
-
-All list views use database-level pagination:
-* **Reusable model**: `src/model/PageResult<T>.java` encapsulates page records, `currentPage`, `pageSize`, `totalRecords`, and `totalPages`
-* **Page size**: Default 5 or 10 records per page
-* **Query execution**: Uses SQL `COUNT(*)` for total records, followed by `SELECT ... LIMIT ? OFFSET ?` for page records
-
-### Performance & Database Indexes
-
-Executed `sql/stage13_14_migration.sql` to add B-tree indexes for frequently searched/filtered columns:
-* `transactions(from_account, to_account)`, `transactions(transaction_type)`, `transactions(transaction_time)`
-* `accounts(customer_id)`, `accounts(status)`
-* `customers(name)`, `customers(email)`, `customers(phone)`
-* `audit_logs(user_id)`, `audit_logs(username)`, `audit_logs(action)`, `audit_logs(status)`, `audit_logs(timestamp)`
-
-### Search & Filtering Features
-
-1. **Transaction Search & Filtering**:
-   * Customer transaction view & Admin global transaction view support filtering by transaction type (`DEPOSIT`/`WITHDRAWAL`/`TRANSFER`), min/max amount, and date ranges.
-2. **Customer & Account Search**:
-   * Admin customer view supports keyword search on Customer ID, Name, Email, or Phone using parameterized SQL `LIKE`.
-3. **Audit Log Search & Filtering**:
-   * Admin audit log view supports filtering by User ID, Action, and Status combined with pagination.
-
----
-
-## 📊 Extended JUnit Test Suite (Stage 12, 13 & 14)
-
-Run `compile_and_run_tests.bat` to execute all test classes:
-
-* `PasswordUtilTest` (8 tests) — BCrypt hashing & verification
-* `CustomerDAOTest` (9 tests) — Customer registration, duplicate check, login
-* `AccountDAOTest` (6 tests) — Account creation & customer account lookup
-* `TransactionDAOTest` (23 tests) — Deposit, withdrawal, atomic transfer, custom exceptions
-* `AuditLogServiceTest` (4 tests) — Audit log creation, success/failure logging, user log retrieval
-* `PaginationTest` (5 tests) — `PageResult` calculations, invalid page normalization, boundary conditions
-* `TransactionSearchTest` (3 tests) — Paginated transaction fetching, type filter, amount range filter
-* `AdminSearchTest` (3 tests) — Paginated customer search, account status/type filtering
-
-**Total: 58 tests — all passing ✅**
-

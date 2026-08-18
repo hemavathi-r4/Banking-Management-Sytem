@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================
-REM  Banking Management System — Stage 12, 13 & 14 Test Runner
-REM  Compiles all source + test files, then runs JUnit 4 tests.
+REM  Banking Management System — Stage 12 through 17 Test Runner
+REM  Compiles all source + test files, then runs all JUnit 4 tests.
 REM
 REM  USAGE: Double-click this file OR run from BMS directory:
 REM         compile_and_run_tests.bat
@@ -9,7 +9,7 @@ REM ============================================================
 
 echo.
 echo ==========================================
-echo   BMS — Stage 12, 13 & 14 Test Runner
+echo   BMS — Stage 12 through 17 Test Runner
 echo ==========================================
 echo.
 
@@ -46,7 +46,9 @@ javac -cp "bin;%CP%" -d bin ^
     test\AuditLogServiceTest.java ^
     test\PaginationTest.java ^
     test\TransactionSearchTest.java ^
-    test\AdminSearchTest.java
+    test\AdminSearchTest.java ^
+    test\TransactionRollbackTest.java ^
+    test\ReportsDAOTest.java
 
 IF %ERRORLEVEL% NEQ 0 (
     echo.
@@ -67,7 +69,9 @@ java -cp "bin;%CP%" org.junit.runner.JUnitCore ^
     AuditLogServiceTest ^
     PaginationTest ^
     TransactionSearchTest ^
-    AdminSearchTest
+    AdminSearchTest ^
+    TransactionRollbackTest ^
+    ReportsDAOTest
 
 echo.
 echo ==========================================

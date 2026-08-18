@@ -303,56 +303,71 @@ public class AdminDAO {
     }
 
     /**
-     * Computes global bank statistics.
-     * 
-     * @return Map containing statistics key-value pairs
+     * Computes global bank statistics in a single database round-trip.
+     *
+     * STAGE 15 OPTIMIZATION:
+     * Previously, this method made 6 separate PreparedStatement queries (6 DB round-trips).
+     * Now it uses a single UNION ALL query that returns one row per metric,
+     * reading all six values in one network call to MySQL.
+     *
+     * Each SELECT returns a 'metric' label and a numeric 'value'.
+     * The result set is iterated once; a switch on 'metric' populates the stats map.
+     *
+     * SQL Pattern: UNION ALL with constant 'metric' column
+     *   SELECT 'totalCustomers' AS metric, COUNT(*) AS value FROM customers
+     *   UNION ALL
+     *   SELECT 'totalAccounts', COUNT(*) FROM accounts
+     *   UNION ALL ...
+     *
+     * @return Map containing statistics key-value pairs:
+     *         totalCustomers, totalAccounts, totalBalance, totalTransactions,
+     *         savingsCount, currentCount, frozenCount, closedCount, activeCount
      */
     public Map<String, Object> getBankStatistics() {
         Map<String, Object> stats = new HashMap<>();
 
-        String customersCountSql = "SELECT COUNT(*) FROM customers";
-        String accountsCountSql   = "SELECT COUNT(*) FROM accounts";
-        String totalBalanceSql    = "SELECT SUM(balance) FROM accounts";
-        String totalTxCountSql    = "SELECT COUNT(*) FROM transactions";
-        String savingsCountSql    = "SELECT COUNT(*) FROM accounts WHERE account_type = 'SAVINGS'";
-        String currentCountSql    = "SELECT COUNT(*) FROM accounts WHERE account_type = 'CURRENT'";
+        // STAGE 15 — Single-query bank statistics (was 6 round-trips, now 1).
+        // Additional status breakdown (frozenCount, closedCount, activeCount)
+        // added at no extra DB cost for Stage 17 reporting.
+        String sql =
+            "SELECT 'totalCustomers'  AS metric, CAST(COUNT(*) AS DECIMAL) AS value FROM customers " +
+            "UNION ALL " +
+            "SELECT 'totalAccounts',  CAST(COUNT(*) AS DECIMAL) FROM accounts " +
+            "UNION ALL " +
+            "SELECT 'totalBalance',   COALESCE(SUM(balance), 0) FROM accounts " +
+            "UNION ALL " +
+            "SELECT 'totalTransactions', CAST(COUNT(*) AS DECIMAL) FROM transactions " +
+            "UNION ALL " +
+            "SELECT 'savingsCount',   CAST(COUNT(*) AS DECIMAL) FROM accounts WHERE account_type = 'SAVINGS' " +
+            "UNION ALL " +
+            "SELECT 'currentCount',   CAST(COUNT(*) AS DECIMAL) FROM accounts WHERE account_type = 'CURRENT' " +
+            "UNION ALL " +
+            "SELECT 'activeCount',    CAST(COUNT(*) AS DECIMAL) FROM accounts WHERE status = 'ACTIVE' " +
+            "UNION ALL " +
+            "SELECT 'frozenCount',    CAST(COUNT(*) AS DECIMAL) FROM accounts WHERE status = 'FROZEN' " +
+            "UNION ALL " +
+            "SELECT 'closedCount',    CAST(COUNT(*) AS DECIMAL) FROM accounts WHERE status = 'CLOSED'";
 
-        try (Connection conn = DBConnection.getConnection()) {
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
 
-            // Get total customers
-            try (PreparedStatement pstmt = conn.prepareStatement(customersCountSql);
-                 ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) stats.put("totalCustomers", rs.getInt(1));
-            }
+            while (rs.next()) {
+                String metric = rs.getString("metric");
+                double value  = rs.getDouble("value");
 
-            // Get total accounts
-            try (PreparedStatement pstmt = conn.prepareStatement(accountsCountSql);
-                 ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) stats.put("totalAccounts", rs.getInt(1));
-            }
-
-            // Get total balance
-            try (PreparedStatement pstmt = conn.prepareStatement(totalBalanceSql);
-                 ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) stats.put("totalBalance", rs.getDouble(1));
-            }
-
-            // Get total transactions
-            try (PreparedStatement pstmt = conn.prepareStatement(totalTxCountSql);
-                 ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) stats.put("totalTransactions", rs.getInt(1));
-            }
-
-            // Get SAVINGS count
-            try (PreparedStatement pstmt = conn.prepareStatement(savingsCountSql);
-                 ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) stats.put("savingsCount", rs.getInt(1));
-            }
-
-            // Get CURRENT count
-            try (PreparedStatement pstmt = conn.prepareStatement(currentCountSql);
-                 ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) stats.put("currentCount", rs.getInt(1));
+                switch (metric) {
+                    case "totalCustomers":    stats.put("totalCustomers",    (int) value); break;
+                    case "totalAccounts":     stats.put("totalAccounts",     (int) value); break;
+                    case "totalBalance":      stats.put("totalBalance",      value);       break;
+                    case "totalTransactions": stats.put("totalTransactions", (int) value); break;
+                    case "savingsCount":      stats.put("savingsCount",      (int) value); break;
+                    case "currentCount":      stats.put("currentCount",      (int) value); break;
+                    case "activeCount":       stats.put("activeCount",       (int) value); break;
+                    case "frozenCount":       stats.put("frozenCount",       (int) value); break;
+                    case "closedCount":       stats.put("closedCount",       (int) value); break;
+                    default: break;
+                }
             }
 
         } catch (SQLException e) {
