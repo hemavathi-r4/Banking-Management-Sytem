@@ -2,6 +2,7 @@ package menu;
 
 import dao.AccountDAO;
 import dao.TransactionDAO;
+import exception.AccountFrozenException;
 import exception.InsufficientFundsException;
 import exception.InvalidAccountException;
 import model.Account;
@@ -255,23 +256,31 @@ public class CustomerMenu {
         }
 
         // Step 5: Execute the deposit (atomic: balance update + transaction log)
-        boolean success = transactionDAO.depositAmount(accountNo, depositAmount);
+        try {
+            boolean success = transactionDAO.depositAmount(accountNo, depositAmount);
 
-        if (success) {
-            // Step 6: Fetch the refreshed balance from the DB to confirm
-            double newBalance = transactionDAO.getUpdatedBalance(accountNo);
+            if (success) {
+                // Step 6: Fetch the refreshed balance from the DB to confirm
+                double newBalance = transactionDAO.getUpdatedBalance(accountNo);
 
-            System.out.println("\n==========================================");
-            System.out.println("  ✓ Deposit Successful!");
-            System.out.println("==========================================");
-            System.out.printf( "  Amount Deposited  : Rs. %,.2f%n", depositAmount);
-            System.out.println("  Account Number    : " + accountNo);
-            if (newBalance >= 0) {
-                System.out.printf("  Updated Balance   : Rs. %,.2f%n", newBalance);
+                System.out.println("\n==========================================");
+                System.out.println("  ✓ Deposit Successful!");
+                System.out.println("==========================================");
+                System.out.printf( "  Amount Deposited  : Rs. %,.2f%n", depositAmount);
+                System.out.println("  Account Number    : " + accountNo);
+                if (newBalance >= 0) {
+                    System.out.printf("  Updated Balance   : Rs. %,.2f%n", newBalance);
+                }
+                System.out.println("==========================================\n");
             }
+            // If deposit failed, TransactionDAO already printed the error message.
+        } catch (AccountFrozenException e) {
+            System.out.println("\n==========================================");
+            System.out.println("  [!] Deposit Failed: Account is frozen/closed.");
+            System.out.println("==========================================");
+            System.out.println("  Reason    : " + e.getMessage());
             System.out.println("==========================================\n");
         }
-        // If deposit failed, TransactionDAO already printed the error message.
     }
 
     // --------------------------------------------------
@@ -385,6 +394,12 @@ public class CustomerMenu {
             System.out.println("==========================================");
             System.out.printf( "  Requested : Rs. %,.2f%n", e.getAmountRequested());
             System.out.printf( "  Available : Rs. %,.2f%n", e.getAvailableBalance());
+            System.out.println("==========================================\n");
+        } catch (AccountFrozenException e) {
+            System.out.println("\n==========================================");
+            System.out.println("  [!] Withdrawal Failed: Account is frozen/closed.");
+            System.out.println("==========================================");
+            System.out.println("  Reason    : " + e.getMessage());
             System.out.println("==========================================\n");
         }
     }
@@ -529,6 +544,12 @@ public class CustomerMenu {
         } catch (InvalidAccountException e) {
             System.out.println("\n==========================================");
             System.out.println("  [!] Transfer Failed: Invalid account details.");
+            System.out.println("==========================================");
+            System.out.println("  Reason    : " + e.getMessage());
+            System.out.println("==========================================\n");
+        } catch (AccountFrozenException e) {
+            System.out.println("\n==========================================");
+            System.out.println("  [!] Transfer Failed: Account is frozen/closed.");
             System.out.println("==========================================");
             System.out.println("  Reason    : " + e.getMessage());
             System.out.println("==========================================\n");

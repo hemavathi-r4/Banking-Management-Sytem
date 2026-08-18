@@ -1,6 +1,7 @@
 package dao;
 
 import database.DBConnection;
+import exception.AccountFrozenException;
 import exception.InsufficientFundsException;
 import exception.InvalidAccountException;
 
@@ -40,6 +41,31 @@ import java.util.ArrayList;
 public class TransactionDAO {
 
     // --------------------------------------------------
+    // Helper: Get the status of an account
+    // --------------------------------------------------
+    /**
+     * Fetches the current status of the given account (ACTIVE, FROZEN, or CLOSED).
+     *
+     * @param accountNo the account number to check
+     * @return the status string, or null if not found
+     */
+    public String getAccountStatus(long accountNo) {
+        String sql = "SELECT status FROM accounts WHERE account_no = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setLong(1, accountNo);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("status");
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("[ERROR] Could not fetch account status: " + e.getMessage());
+        }
+        return null;
+    }
+
+    // --------------------------------------------------
     // Method 1: Deposit money into an account
     // --------------------------------------------------
     /**
@@ -53,15 +79,18 @@ public class TransactionDAO {
      * If Step A succeeds but Step B fails, conn.rollback() reverses Step A.
      * Both changes are only permanently saved when conn.commit() is called.
      *
-     * WHY balance = balance + amount (not just SET balance = amount)?
-     * Because we don't want to replace the balance — we want to ADD to it.
-     * MySQL's "SET balance = balance + ?" reads the current value and adds on top.
-     *
      * @param accountNo the account number to deposit into
      * @param amount    the amount to deposit
      * @return true if both SQL statements succeeded and were committed, false otherwise
+     * @throws AccountFrozenException if the account is not ACTIVE
      */
-    public boolean depositAmount(long accountNo, double amount) {
+    public boolean depositAmount(long accountNo, double amount) throws AccountFrozenException {
+
+        // PRE-CHECK: Verify account is ACTIVE before proceeding
+        String status = getAccountStatus(accountNo);
+        if (status != null && !status.equals("ACTIVE")) {
+            throw new AccountFrozenException(accountNo, status);
+        }
 
         String updateSql = "UPDATE accounts SET balance = balance + ? WHERE account_no = ?";
         String insertSql = "INSERT INTO transactions (to_account, transaction_type, amount, remarks) " +
@@ -214,7 +243,13 @@ public class TransactionDAO {
      * @return true if the withdrawal succeeded and was committed
      * @throws InsufficientFundsException if the account balance is less than the amount
      */
-    public boolean withdrawAmount(long accountNo, double amount) throws InsufficientFundsException {
+    public boolean withdrawAmount(long accountNo, double amount) throws InsufficientFundsException, AccountFrozenException {
+
+        // PRE-CHECK: Verify account is ACTIVE before proceeding
+        String status = getAccountStatus(accountNo);
+        if (status != null && !status.equals("ACTIVE")) {
+            throw new AccountFrozenException(accountNo, status);
+        }
 
         // ------------------------------------------
         // PRE-CHECK: Verify sufficient funds BEFORE opening a transaction
@@ -344,7 +379,13 @@ public class TransactionDAO {
      * @throws InvalidAccountException     if the target account does not exist
      */
     public boolean transferAmount(long fromAccountNo, long toAccountNo, double amount, String remarks)
-            throws InsufficientFundsException, InvalidAccountException {
+            throws InsufficientFundsException, InvalidAccountException, AccountFrozenException {
+
+        // 0. Pre-check: Verify source account is ACTIVE
+        String fromStatus = getAccountStatus(fromAccountNo);
+        if (fromStatus != null && !fromStatus.equals("ACTIVE")) {
+            throw new AccountFrozenException(fromAccountNo, fromStatus);
+        }
 
         // 1. Validate destination account is not the same as source account
         if (fromAccountNo == toAccountNo) {

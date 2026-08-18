@@ -3,6 +3,7 @@ package dao;
 import database.DBConnection;
 import model.Customer;
 import model.Transaction;
+import util.PasswordUtil;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -19,28 +20,52 @@ import java.util.Map;
 public class AdminDAO {
 
     /**
-     * Authenticates administrator credentials.
-     * 
+     * Authenticates administrator credentials using BCrypt hash verification.
+     *
+     * STAGE 11 — SECURITY CHANGE:
+     * Previously: SELECT 1 FROM admins WHERE username = ? AND password = ?
+     *             (Plain-text comparison inside SQL — insecure)
+     *
+     * Now:        SELECT password FROM admins WHERE username = ?
+     *             Then: PasswordUtil.verifyPassword(inputPassword, storedHash)
+     *             (Hash verification happens in Java — never in SQL)
+     *
+     * GENERIC ERROR RESPONSE:
+     * Both "wrong username" and "wrong password" produce the same false result.
+     * The UI shows: "Invalid admin username or password." — not revealing which failed.
+     *
      * @param username the input admin username
-     * @param password the input admin password
+     * @param password the plain-text admin password entered at login
      * @return true if credentials are valid, false otherwise
      */
     public boolean authenticateAdmin(String username, String password) {
-        String sql = "SELECT 1 FROM admins WHERE username = ? AND password = ?";
+        // Guard: reject empty inputs without touching the database
+        if (username == null || username.trim().isEmpty() ||
+            password == null || password.trim().isEmpty()) {
+            return false;
+        }
+
+        // Fetch the stored BCrypt hash by username only
+        String sql = "SELECT password FROM admins WHERE username = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, username);
-            pstmt.setString(2, password);
 
             try (ResultSet rs = pstmt.executeQuery()) {
-                return rs.next(); // True if a matching admin is found
+                if (rs.next()) {
+                    String storedHash = rs.getString("password");
+                    // STAGE 11: Verify password using BCrypt — never compare plain text
+                    return PasswordUtil.verifyPassword(password, storedHash);
+                }
+                // Username not found — return false (same as wrong password)
             }
 
         } catch (SQLException e) {
-            System.out.println("[ERROR] Admin authentication failed: " + e.getMessage());
+            System.out.println("[ERROR] Admin authentication could not be completed.");
             return false;
         }
+        return false;
     }
 
     /**

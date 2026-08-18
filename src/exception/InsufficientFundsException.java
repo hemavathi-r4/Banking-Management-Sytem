@@ -28,6 +28,7 @@ package exception;
  * to handle it and the program would crash at runtime instead of compile time.
  */
 public class InsufficientFundsException extends Exception {
+    private static final long serialVersionUID = 1L;
 
     // --------------------------------------------------
     // Fields — carry extra context about the failure

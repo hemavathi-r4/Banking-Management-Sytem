@@ -7,6 +7,7 @@ package exception;
  * that does not exist in the database or is not in an ACTIVE status.
  */
 public class InvalidAccountException extends Exception {
+    private static final long serialVersionUID = 1L;
 
     private final long invalidAccountNo;
 

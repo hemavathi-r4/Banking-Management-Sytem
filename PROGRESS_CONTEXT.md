@@ -195,11 +195,111 @@ BMS/
 ## 💡 Suggested Git Commit Message for Stage 3
 
 ```
-feat: implement customer login and dashboard (Stage 3)
+feat: implement administrator operations module with OOP inheritance (Stage 9)
 
-- Add loginCustomer method in CustomerDAO.java
-- Create LoginMenu.java for credential validation and prompt flow
-- Create CustomerMenu.java for post-login dashboard with options and stubs
-- Wire main menu option 2 to LoginMenu in Main.java
-- Download mysql-connector-j-8.0.33.jar to lib folder
+- Create User.java base superclass with common id/password fields (OOP Inheritance)
+- Create Admin.java model extending User with username field
+- Refactor Customer.java to extend User, delegating customerId/password to inherited fields
+- Create AdminDAO.java with authenticate, CRUD customers, account status, transactions, statistics
+- Create AdminMenu.java with login prompt and 8-option admin dashboard
+- Update Main.java: wire Option 3 to AdminMenu.showLoginForm()
+- deleteCustomer() uses atomic JDBC transactions to cascade-delete transactions, accounts, and customer
 ```
+
+---
+
+## 📅 Stage 11 — Security Upgrade (August 18, 2026)
+
+### Goal
+Harden authentication and database security without breaking the existing functionality.
+
+### Key Changes
+
+**1. Password Hashing (BCrypt)**
+- Added `jbcrypt-0.4.jar` to `lib/`
+- Created `src/util/PasswordUtil.java` — wraps `BCrypt.hashpw()` (hash) and `BCrypt.checkpw()` (verify) with cost factor 12
+- Modified `CustomerDAO.registerCustomer()`: hashes the password with `PasswordUtil.hashPassword()` before inserting into the database
+- Modified `CustomerDAO.loginCustomer()`: changed SQL from `WHERE email=? AND password=?` to `WHERE email=?`, then verifies hash in Java with `PasswordUtil.verifyPassword()`
+- Modified `AdminDAO.authenticateAdmin()`: same pattern — fetch by username, verify hash in Java
+- Created `sql/stage11_migration.sql`: updates default admin password to BCrypt hash, documents customer migration approach
+
+**2. SQL Injection (Confirmed Already Safe)**
+- Verified all 4 DAO classes (`CustomerDAO`, `AccountDAO`, `AdminDAO`, `TransactionDAO`) — all 100% use `PreparedStatement` with `?` placeholders. No string concatenation vulnerabilities found.
+
+**3. Sensitive Data Handling**
+- Plain-text passwords never logged or included in error messages
+- Authentication failures return a generic message ("Invalid username or password.") regardless of cause
+- DB error details not forwarded to users during authentication
+
+**4. Input Validation Improvements**
+- `CustomerDAO.loginCustomer()`: Added null/empty guard — rejects without a DB call
+- `AdminDAO.authenticateAdmin()`: Added null/empty guard — rejects without a DB call
+
+### Files Created in Stage 11
+| File | Purpose |
+|------|---------|
+| `src/util/PasswordUtil.java` | BCrypt hashing utility |
+| `sql/stage11_migration.sql` | DB migration script for BCrypt hashes |
+| `lib/jbcrypt-0.4.jar` | BCrypt library |
+
+### Files Modified in Stage 11
+| File | Change |
+|------|--------|
+| `src/dao/CustomerDAO.java` | Hash on register, BCrypt-verify on login |
+| `src/dao/AdminDAO.java` | BCrypt-verify on authenticate |
+
+---
+
+## 📅 Stage 12 — JUnit Testing (August 18, 2026)
+
+### Goal
+Add meaningful JUnit 4 tests that verify actual business behavior, not just method execution.
+
+### Test Infrastructure
+- Added `lib/junit-4.13.2.jar` and `lib/hamcrest-core-1.3.jar`
+- Created `test/TestDBHelper.java` — manages isolated test data lifecycle (create in @Before, clean in @After)
+- Tests run against the real MySQL DB using isolated data with `@bmstest.internal` email domain
+- Created `compile_and_run_tests.bat` — one-click compile + run script for Windows
+
+### Test Classes Created
+
+**`test/PasswordUtilTest.java`** — 8 tests
+- Hash generation, BCrypt prefix validation, salt randomness, correct/wrong/null/empty verification, exception on null/empty input
+
+**`test/CustomerDAOTest.java`** — 9 tests
+- Registration success, duplicate email rejection, duplicate phone rejection, hash storage verification, login with correct credentials, wrong password, non-existent email, empty email, empty password
+
+**`test/AccountDAOTest.java`** — 6 tests
+- SAVINGS account creation, CURRENT account creation, retrieval after creation, multi-account retrieval, empty list for no accounts, empty list for non-existent customer
+
+**`test/TransactionDAOTest.java`** — 23 tests
+- Deposit success, balance increase, multiple deposits accumulate, frozen account deposit rejection
+- Withdrawal success, balance decrease, InsufficientFundsException with correct amounts, exact-balance withdrawal, frozen account withdrawal rejection
+- Transfer success, sender balance decrease, receiver balance increase, insufficient funds (with atomicity check), self-transfer rejection, non-existent destination rejection, frozen sender rejection, accountExists true/false
+
+### Test Results
+```
+JUnit version 4.13.2
+OK (46 tests)   Time: 30.639s
+```
+
+**All 46 tests passed on first run. ✅**
+
+---
+
+## 📊 Overall Progress Tracker (Updated)
+
+| Stage | Description | Status | Date |
+|-------|-------------|--------|------|
+| 1 | Project setup, DB schema, DB connection | ✅ Complete | June 30, 2026 |
+| 2 | Customer Registration (model, DAO, menu) | ✅ Complete | July 1, 2026 |
+| 3 | Customer Login & Authentication | ✅ Complete | July 3, 2026 |
+| 4 | Account Creation & Balance Checking | ✅ Complete | July 10, 2026 |
+| 5 | Deposit Functionality | ✅ Complete | — |
+| 6 | Withdrawal with Custom Exceptions | ✅ Complete | — |
+| 7 | Fund Transfer with SQL Transactions | ✅ Complete | — |
+| 8 | Transaction History & Mini Statement | ✅ Complete | — |
+| 9 | Admin Module | ✅ Complete | — |
+| 10 | Code Polish, Documentation, README | ✅ Complete | — |
+| 11 | Security: BCrypt Hashing, SQL Injection Review | ✅ Complete | August 18, 2026 |
+| 12 | JUnit Testing (46 tests, all passing) | ✅ Complete | August 18, 2026 |

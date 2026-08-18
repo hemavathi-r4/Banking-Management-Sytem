@@ -85,6 +85,20 @@ public class RegistrationMenu {
             return;
         }
 
+        // Basic email format check (must contain '@' and '.')
+        if (!email.contains("@") || !email.contains(".")) {
+            System.out.println("\n[ERROR] Invalid email format. Must contain '@' and '.'.");
+            System.out.println("        Registration cancelled.\n");
+            return;
+        }
+
+        // Phone number check (digits only, length between 10 and 15)
+        if (!phone.matches("\\d{10,15}")) {
+            System.out.println("\n[ERROR] Invalid phone number. Must contain only digits and be between 10 to 15 digits long.");
+            System.out.println("        Registration cancelled.\n");
+            return;
+        }
+
         // --------------------------------------------------
         // Create a Customer object and register
         // --------------------------------------------------

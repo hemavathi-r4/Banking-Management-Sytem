@@ -2,6 +2,7 @@ package dao;
 
 import database.DBConnection;
 import model.Customer;
+import util.PasswordUtil;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -56,7 +57,13 @@ public class CustomerDAO {
             return false;
         }
 
-        // Step 3: Insert the customer into the database
+        // Step 3: Hash the password BEFORE inserting into the database.
+        // STAGE 11 — SECURITY: Passwords are NEVER stored as plain text.
+        // BCrypt generates a random salt and returns a 60-character hash string.
+        // The original plain-text password is NOT saved anywhere.
+        String hashedPassword = PasswordUtil.hashPassword(customer.getPassword());
+
+        // Step 4: Insert the customer into the database
         // The '?' marks are placeholders — we fill them in safely using setString().
         String sql = "INSERT INTO customers (name, email, phone, password, address) VALUES (?, ?, ?, ?, ?)";
 
@@ -64,11 +71,12 @@ public class CustomerDAO {
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            // Fill in the placeholders with actual values
+            // Fill in the placeholders with actual values.
+            // Note: we insert 'hashedPassword', NOT the raw password.
             pstmt.setString(1, customer.getName());
             pstmt.setString(2, customer.getEmail());
             pstmt.setString(3, customer.getPhone());
-            pstmt.setString(4, customer.getPassword());
+            pstmt.setString(4, hashedPassword);   // BCrypt hash — safe to store
             pstmt.setString(5, customer.getAddress());
 
             // executeUpdate() is used for INSERT, UPDATE, DELETE queries.
@@ -170,40 +178,79 @@ public class CustomerDAO {
     // Method 4: Authenticate and log in a customer
     // --------------------------------------------------
     /**
-     * Validates customer credentials against the database.
+     * Validates customer credentials against the database using BCrypt verification.
+     *
+     * STAGE 11 — SECURITY CHANGE:
+     * Previously: SELECT * FROM customers WHERE email = ? AND password = ?
+     *             (Compared plain-text passwords inside SQL — insecure)
+     *
+     * Now:        SELECT * FROM customers WHERE email = ?
+     *             Then: PasswordUtil.verifyPassword(enteredPassword, storedHash)
+     *             (BCrypt comparison happens in Java — plain-text never touches SQL)
+     *
+     * WHY FETCH ONLY BY EMAIL?
+     * - BCrypt hashes are salted — you cannot search for them in SQL.
+     * - We fetch the customer row by email, then verify the hash in Java.
+     * - This also prevents timing-based attacks that could reveal whether
+     *   a username exists (both cases return null with the same delay).
+     *
+     * SECURITY NOTE — GENERIC ERROR MESSAGE:
+     * Whether the email doesn't exist OR the password is wrong, we return null.
+     * The UI should display a single message: "Invalid username or password."
+     * This prevents revealing which field was incorrect to potential attackers.
      *
      * @param email    the customer's email address
-     * @param password the customer's password
+     * @param password the plain-text password entered by the user at login
      * @return a Customer object if credentials match, or null if they don't
      */
     public Customer loginCustomer(String email, String password) {
-        String sql = "SELECT * FROM customers WHERE email = ? AND password = ?";
+        // Input guard — reject empty credentials immediately (no DB call needed)
+        if (email == null || email.trim().isEmpty() ||
+            password == null || password.trim().isEmpty()) {
+            return null;
+        }
+
+        // Fetch the customer row by email only (not by password)
+        String sql = "SELECT * FROM customers WHERE email = ?";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, email);
-            pstmt.setString(2, password);
 
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    // Reconstruct Customer object using full constructor (Constructor 3)
-                    return new Customer(
-                        rs.getInt("customer_id"),
-                        rs.getString("name"),
-                        rs.getString("email"),
-                        rs.getString("phone"),
-                        rs.getString("password"),
-                        rs.getString("address")
-                    );
+                    // Retrieve the stored BCrypt hash from the database
+                    String storedHash = rs.getString("password");
+
+                    // STAGE 11: Verify the entered password against the stored hash.
+                    // BCrypt.checkpw() extracts the salt from storedHash and rehashes
+                    // the entered password to see if they match. The plain-text password
+                    // is never sent to the database.
+                    if (PasswordUtil.verifyPassword(password, storedHash)) {
+                        // Password matches — reconstruct and return Customer object
+                        return new Customer(
+                            rs.getInt("customer_id"),
+                            rs.getString("name"),
+                            rs.getString("email"),
+                            rs.getString("phone"),
+                            rs.getString("password"),
+                            rs.getString("address")
+                        );
+                    }
+                    // Email found but password doesn't match — fall through to return null
                 }
+                // Email not found — fall through to return null
             }
 
         } catch (SQLException e) {
-            System.out.println("\n[ERROR] Login failed due to a database error.");
-            System.out.println("        Details: " + e.getMessage());
+            // SECURITY: Do NOT expose database error details to the user.
+            // Log for debugging but show only a generic message.
+            System.out.println("\n[ERROR] Login could not be completed. Please try again later.");
         }
 
+        // Return null for BOTH "wrong password" and "user not found" cases.
+        // The UI will display: "Invalid username or password." — never revealing which.
         return null;
     }
 }
